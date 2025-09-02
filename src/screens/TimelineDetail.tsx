@@ -5,7 +5,7 @@ import Pill from "../components/common/Pill";
 import Modal from "../components/common/Modal";
 import type { Role } from "../contexts/AuthContext";
 
-export default function TimelineDetail({ role }: { role: Role }) {
+export default function TimelineDetail(_: { role: Role }) {
   const [openSale, setOpenSale] = useState(false);
   const participants = ["Mukbo", "DiverKim", "Alice", "Bob"];
   const perHead = 120000 / participants.length;

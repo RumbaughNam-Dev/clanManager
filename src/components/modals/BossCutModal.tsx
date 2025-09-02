@@ -1,6 +1,4 @@
 import React, { useMemo, useState } from "react";
-import { useAuth } from "../../contexts/AuthContext";
-
 
 type Props = {
   boss: { id: string; name: string };
@@ -11,8 +9,6 @@ type Props = {
 type Mode = "DISTRIBUTE" | "TREASURY";
 
 export default function BossCutModal({ boss, onClose, onSaved }: Props) {
-  const { user } = useAuth();
-
   // 입력 상태
   const [lootItemsText, setLootItemsText] = useState(""); // 줄바꿈 기준 N개
   const [looterLoginId, setLooterLoginId] = useState("");

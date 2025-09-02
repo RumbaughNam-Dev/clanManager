@@ -8,19 +8,6 @@ function joinUrl(path: string) {
   return `${left}${right}`;
 }
 
-function normalizeHeaders(h?: HeadersInit): Record<string, string> {
-  const out: Record<string, string> = {};
-  if (!h) return out;
-  if (h instanceof Headers) {
-    h.forEach((v, k) => (out[k] = v));
-  } else if (Array.isArray(h)) {
-    for (const [k, v] of h) out[k] = v as string;
-  } else {
-    Object.assign(out, h as Record<string, string>);
-  }
-  return out;
-}
-
 function buildAuthHeader(): Record<string, string> {
   const h: Record<string, string> = {};
   try {

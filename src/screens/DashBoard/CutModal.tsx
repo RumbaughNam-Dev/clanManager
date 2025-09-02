@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo } from "react";
 import Modal from "../../components/common/Modal";
 import { getJSON, postJSON } from "../../lib/http";
 import type { BossDto } from "../../types";
-import { toIsoFromLocal, formatNow, roleLabel } from "../../utils/util";
+import { toIsoFromLocal, roleLabel } from "../../utils/util";
 
 type MemberRow = {
   id: string;

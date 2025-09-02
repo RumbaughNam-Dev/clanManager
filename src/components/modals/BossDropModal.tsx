@@ -30,11 +30,12 @@ type DetailResp = {
   };
 };
 
-export default function BossDropModal({ open, timelineId, onClose }: {
+export default function BossDropModal(props: {
   open: boolean;
   timelineId?: string | null;
-  onClose: () => void;
+  onClose: () => void; // 타입은 유지하되 실제로 안 쓰면 꺼내지 않음
 }) {
+  const { open, timelineId } = props;
   const [loading, setLoading] = useState(false);
   const [error, setError]   = useState<string | null>(null);
   const [data, setData]     = useState<DetailResp["item"] | null>(null);

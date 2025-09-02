@@ -87,7 +87,7 @@ export default function Members() {
     if (!confirm(`정말 ${m.loginId}에게 관리자 권한을 위임할까요? 현재 관리자는 간부로 내려갑니다.`)) return;
     setAssigningId(m.id);
     try {
-      const r = await postJSON<{ ok: true; demoted: number; promotedId: string; newRole: string }>(`/v1/members/${m.id}/assign-admin`, {});
+      await postJSON<{ ok: true; demoted: number; promotedId: string; newRole: string }>(`/v1/members/${m.id}/assign-admin`, {});
       await load();
       alert("관리자 권한을 위임했습니다. 다시 로그인해 주세요.");
       logout(); // ✅ 안내 후 즉시 로그아웃
@@ -121,8 +121,6 @@ export default function Members() {
     if (Number.isNaN(d.getTime())) return s;
     return d.toLocaleString("ko-KR", { hour12: false });
   }
-
-  const atCapacity = list.length >= MAX_MEMBERS;
 
   return (
     <div className="space-y-4">
