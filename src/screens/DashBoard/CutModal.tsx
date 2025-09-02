@@ -1,5 +1,5 @@
 // src/screens/dashboard/CutModal.tsx
-import React, { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Modal from "../../components/common/Modal";
 import { getJSON, postJSON } from "../../lib/http";
 import type { BossDto } from "../../types";

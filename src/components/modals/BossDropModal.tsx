@@ -1,5 +1,5 @@
 // props: { open: boolean; timelineId?: string | null; ... }
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { getJSON } from "../../lib/http";
 
 type LootItemDto = {

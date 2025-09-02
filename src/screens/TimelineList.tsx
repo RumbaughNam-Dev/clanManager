@@ -1,5 +1,5 @@
 // src/screens/TimelineList.tsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import PageHeader from "../components/common/PageHeader";
 import Card from "../components/common/Card";
 import Pill from "../components/common/Pill";

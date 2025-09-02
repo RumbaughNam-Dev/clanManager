@@ -1,5 +1,5 @@
 // src/screens/dashboard/LoggedInDashboard.tsx
-import React, { useEffect, useMemo, useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { getJSON } from "../../lib/http";
 import BossCard from "./BossCard";
 import ForgottenCard from "./ForgottenCard";

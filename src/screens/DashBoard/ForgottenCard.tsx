@@ -1,5 +1,4 @@
 // src/screens/dashboard/ForgottenCard.tsx
-import React from "react";
 import BossCard from "./BossCard";
 import type { BossDto } from "../../types";
 

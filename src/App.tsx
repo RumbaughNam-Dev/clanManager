@@ -1,5 +1,5 @@
 // src/App.tsx
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { PageKey, Role } from "./types";
 import { useAuth } from "./contexts/AuthContext";
 import Dashboard from "./screens/DashBoard/Dashboard";

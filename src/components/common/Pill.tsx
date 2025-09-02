@@ -1,5 +1,3 @@
-import React from "react";
-
 export default function Pill({ children, tone = "default" as "default" | "success" | "warning" | "danger" }) {
   const map = {
     default: "bg-gray-100 text-gray-700",

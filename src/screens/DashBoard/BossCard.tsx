@@ -1,5 +1,4 @@
 // src/screens/dashboard/BossCard.tsx
-import React from "react";
 import type { BossDto } from "../../types";
 
 type Props = {
