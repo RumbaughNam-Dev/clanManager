@@ -1,6 +1,6 @@
 // src/contexts/AuthContext.tsx
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { getJSON, postJSON } from "../lib/http";
+import { postJSON, postJSON } from "../lib/http";
 
 export type Role = "SUPERADMIN" | "ADMIN" | "LEADER" | "USER";
 
