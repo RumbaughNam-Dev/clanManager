@@ -1,8 +1,11 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// https://vite.dev/config/
 export default defineConfig({
   base: '/clanManager/',
   plugins: [react()],
+  build: {
+    sourcemap: true,
+    minify: false,        // ← 일단 끔 (grep/확인 쉬움)
+  },
 })

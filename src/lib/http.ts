@@ -1,3 +1,6 @@
+;(window as any).__HTTP_WRAPPER_MARK__ = 'v4';
+console.log('[http.ts top-level] wrapper loaded v4');
+
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:3000";
 
 /** path를 절대 URL로 합성 */
@@ -5,7 +8,9 @@ function joinUrl(path: string) {
   if (/^https?:\/\//i.test(path)) return path;
   const left = API_BASE.replace(/\/+$/, "");
   const right = path.startsWith("/") ? path : `/${path}`;
-  return `${left}${right}`;
+  const url = `${left}${right}`;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}via=httpwrap`;   // ← ★ 이거 붙여요
 }
 
 /** Authorization 헤더 구성 */
@@ -48,49 +53,36 @@ export async function requestJSON<T>(
 ): Promise<T> {
   const url = joinUrl(path);
 
-  // extraInit.headers를 객체로 정규화
   const extraHeaders = (extraInit?.headers as Record<string, string>) || {};
   const headers: Record<string, string> = {
     ...extraHeaders,
     ...buildAuthHeader(),
     Accept: "application/json",
-    "X-Orig-Method": method,      // 디버그용
-    "X-From-HttpWrapper": "1",    // 디버그용
+    "X-Orig-Method": method,
+    "X-From-HttpWrapper": "1", // ← ★
   };
 
-  // body가 있으면 JSON으로
   let fetchBody: BodyInit | undefined = extraInit?.body as BodyInit | undefined;
   if (body !== undefined) {
     headers["Content-Type"] = "application/json";
     fetchBody = JSON.stringify(body);
   }
 
-  // 실제 네트워크 메서드는 항상 POST
   const actualMethod: "POST" = "POST";
-
-  // ✅ fetch 호출 '직전'에 로그
-  // (이 로그는 브라우저 개발자도구 Console 탭에 찍힙니다)
-  // 배포 번들에 포함되었는지 확인하려면 빌드 후 dist의 JS에서 이 문자열이 있는지 grep로 확인하세요.
-  console.log("[http.ts] send", method, "->", actualMethod, url);
+  console.log("[http.ts] send", method, "=> POST", url); // ← ★
 
   const res = await fetch(url, {
-    ...extraInit,         // 사용자가 넘긴 옵션 먼저 펼치고
-    method: actualMethod, // 우리가 덮어씌움
-    headers,              // 최종 헤더
-    body: fetchBody,      // 최종 바디
+    ...extraInit,
+    method: actualMethod,
+    headers,
+    body: fetchBody,
   });
 
-  if (!res.ok) {
-    await handleError(res, url, method);
-  }
+  if (!res.ok) await handleError(res, url, method);
 
   const ct = (res.headers.get("content-type") || "").toLowerCase();
-  if (ct.includes("application/json")) {
-    return res.json() as Promise<T>;
-  }
-  if (res.status === 204) {
-    return undefined as unknown as T;
-  }
+  if (ct.includes("application/json")) return res.json() as Promise<T>;
+  if (res.status === 204) return undefined as unknown as T;
 
   const text = await res.text();
   throw new Error(`Expected JSON but got "${ct || "unknown"}". Body(head 200ch): ${text.slice(0, 200)}`);
