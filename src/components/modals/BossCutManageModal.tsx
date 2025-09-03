@@ -1,7 +1,7 @@
 // src/components/modals/BossCutManageModal.tsx
 import React, { useEffect, useRef, useState } from "react";
 import Modal from "../common/Modal";
-import { getJSON, patchJSON, requestJSON } from "../../lib/http";
+import { patchJSON, postJSON, requestJSON } from "../../lib/http";
 
 type LootItemDto = {
   id: string;
@@ -78,7 +78,7 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
     if (!timelineId) return;
     try {
       setLoading(true);
-      const res = await getJSON<DetailResp>(`/v1/boss-timelines/${timelineId}`);
+      const res = await postJSON<DetailResp>(`/v1/boss-timelines/${timelineId}`);
       setData(res.item);
       setErr(null);
 

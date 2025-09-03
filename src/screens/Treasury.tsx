@@ -4,7 +4,7 @@ import PageHeader from "../components/common/PageHeader";
 import Card from "../components/common/Card";
 import Pill from "../components/common/Pill";
 import Modal from "../components/common/Modal";
-import { getJSON, postJSON } from "../lib/http";
+import { postJSON } from "../lib/http";
 import type { Role } from "../contexts/AuthContext";
 
 type EntryType = "SALE_TREASURY" | "MANUAL_IN" | "MANUAL_OUT";
@@ -79,7 +79,7 @@ export default function Treasury({ role }: { role: Role }) {
     setLoading(true);
     setErr(null);
     try {
-      const data = await getJSON<ListResp>(`/v1/treasury?page=${page}&size=${size}`);
+      const data = await postJSON<ListResp>(`/v1/treasury?page=${page}&size=${size}`);
       if (!data || !Array.isArray(data.items)) {
         console.warn("[Treasury] unexpected response shape:", data);
       }

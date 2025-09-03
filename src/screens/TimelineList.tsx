@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import PageHeader from "../components/common/PageHeader";
 import Card from "../components/common/Card";
 import Pill from "../components/common/Pill";
-import { getJSON } from "../lib/http";
+import { postJSON } from "../lib/http";
 import BossCutManageModal from "../components/modals/BossCutManageModal";
 
 type LootItemDto = {
@@ -159,7 +159,7 @@ export default function TimelineList() {
 
     setLoading(true);
     try {
-      const data = await getJSON<ListResp>("/v1/boss-timelines", { signal: ac.signal });
+      const data = await postJSON<ListResp>("/v1/boss-timelines", { signal: ac.signal });
       setRows(data.items ?? []);
     } catch {
       setRows([]);
@@ -291,7 +291,7 @@ export default function TimelineList() {
         onClose={() => setManageOpen(false)}
         onSaved={async () => {
           try {
-            const data = await getJSON<ListResp>("/v1/boss-timelines");
+            const data = await postJSON<ListResp>("/v1/boss-timelines");
             setRows(data.items ?? []);
           } catch {
             // ignore

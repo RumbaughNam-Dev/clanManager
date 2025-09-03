@@ -1,6 +1,6 @@
 // props: { open: boolean; timelineId?: string | null; ... }
 import { useEffect, useState } from "react";
-import { getJSON } from "../../lib/http";
+import { postJSON } from "../../lib/http";
 
 type LootItemDto = {
   id: string;
@@ -51,7 +51,7 @@ export default function BossDropModal(props: {
         setData(null);
 
         // ✅ 실제 데이터 요청 (GET /v1/boss-timelines/:id)
-        const res = await getJSON<DetailResp>(`/v1/boss-timelines/${timelineId}`);
+        const res = await postJSON<DetailResp>(`/v1/boss-timelines/${timelineId}`);
 
         if (!cancelled) {
           setData(res.item);

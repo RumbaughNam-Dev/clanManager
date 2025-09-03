@@ -1,6 +1,6 @@
 // src/screens/dashboard/LoggedInDashboard.tsx
 import { useState, useEffect, useMemo } from "react";
-import { getJSON } from "../../lib/http";
+import { postJSON } from "../../lib/http";
 import BossCard from "./BossCard";
 import ForgottenCard from "./ForgottenCard";
 import CutModal from "./CutModal";
@@ -39,7 +39,7 @@ export default function LoggedInDashboard() {
   async function loadBosses() {
     setLoading(true);
     try {
-      const data = await getJSON<ListBossesResp>("/v1/dashboard/bosses");
+      const data = await postJSON<ListBossesResp>("/v1/dashboard/bosses");
       setTrackedRaw(data.tracked ?? []);
       setForgottenRaw(data.forgotten ?? []);
     } catch {

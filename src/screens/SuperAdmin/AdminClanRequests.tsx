@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import Card from "../../components/common/Card";
 import PageHeader from "../../components/common/PageHeader";
 import { useAuth } from "../../contexts/AuthContext";
-import { getJSON, postJSON } from "../../lib/http";
+import { postJSON } from "../../lib/http";
 
 type Row = {
   id: string;                 // BigInt -> string
@@ -31,7 +31,7 @@ export default function AdminClanRequests() {
     if (role !== "SUPERADMIN") return;
     (async () => {
       try {
-        const r = await getJSON<ListResp>("/v1/admin/clan-requests");
+        const r = await postJSON<ListResp>("/v1/admin/clan-requests");
         setPending(r.pending);
         setProcessed(r.processed);
       } catch (e: any) {
