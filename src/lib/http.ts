@@ -45,28 +45,29 @@ export async function requestJSON<T>(
   extraInit?: RequestInit
 ): Promise<T> {
   const url = joinUrl(path);
+
+  const extraHeaders = (extraInit?.headers as Record<string, string>) || {};
   const headers: Record<string, string> = {
+    ...extraHeaders,
     ...buildAuthHeader(),
-    ...(extraInit?.headers as Record<string, string> | undefined),
     Accept: "application/json",
     "X-Orig-Method": method, // 디버깅용
   };
 
   let fetchBody: BodyInit | undefined = extraInit?.body as BodyInit | undefined;
-
   if (body !== undefined) {
     headers["Content-Type"] = "application/json";
     fetchBody = JSON.stringify(body);
   }
 
-  // ⬇️ 여기서 실제 메서드는 무조건 POST로 변환
-  const actualMethod = "POST";
+  // 실제 메서드는 전부 POST로 강제
+  const actualMethod: "POST" = "POST";
 
   const res = await fetch(url, {
-    method: actualMethod,
-    headers,
-    body: fetchBody,
-    ...extraInit,
+    ...extraInit,             // 1) 먼저 펼치고
+    method: actualMethod,     // 2) 우리가 덮어쓰기
+    headers,                  // 3) 헤더도 최종 덮어쓰기
+    body: fetchBody,          // 4) 바디도 최종 덮어쓰기
   });
 
   if (!res.ok) {
@@ -80,11 +81,8 @@ export async function requestJSON<T>(
   if (res.status === 204) {
     return undefined as unknown as T;
   }
-
   const text = await res.text();
-  throw new Error(
-    `Expected JSON but got "${ct || "unknown"}". Body(head 200ch): ${text.slice(0, 200)}`
-  );
+  throw new Error(`Expected JSON but got "${ct || "unknown"}". Body(head 200ch): ${text.slice(0, 200)}`);
 }
 
 // 헬퍼들은 그대로 두되, 내부적으로는 위에서 모두 POST로 전송됨
