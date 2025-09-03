@@ -86,6 +86,9 @@ export async function requestJSON<T>(
     return undefined as unknown as T;
   }
 
+  headers["X-From-HttpWrapper"] = "1";
+console.log("[http.ts] send", method, "-> POST", url);
+
   const text = await res.text();
   throw new Error(`Expected JSON but got "${ct || "unknown"}". Body(head 200ch): ${text.slice(0, 200)}`);
 }
