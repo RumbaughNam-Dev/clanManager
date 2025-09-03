@@ -4,7 +4,7 @@ import PageHeader from "../components/common/PageHeader";
 import Card from "../components/common/Card";
 import Pill from "../components/common/Pill";
 import Modal from "../components/common/Modal";
-import { postJSON } from "../lib/http";
+import { postJSON } from "@/lib/http";
 import type { Role } from "../contexts/AuthContext";
 
 type EntryType = "SALE_TREASURY" | "MANUAL_IN" | "MANUAL_OUT";

@@ -1,6 +1,9 @@
 ;(window as any).__HTTP_WRAPPER_MARK__ = 'v4';
 console.log('[http.ts top-level] wrapper loaded v4');
 
+export const __HTTP_MARK__ = "HTTP_WRAPPER_MARK_9247";
+
+
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:3000";
 
 /** path를 절대 URL로 합성 */
@@ -61,6 +64,7 @@ export async function requestJSON<T>(
     "X-Orig-Method": method,
     "X-From-HttpWrapper": "1", // ← ★
   };
+  headers["X-From-HttpWrapper"] = "HTTP_WRAPPER_MARK_9247";
 
   let fetchBody: BodyInit | undefined = extraInit?.body as BodyInit | undefined;
   if (body !== undefined) {

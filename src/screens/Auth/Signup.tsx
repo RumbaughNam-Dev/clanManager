@@ -2,7 +2,7 @@
 import React, { useMemo, useState } from "react";
 import PageHeader from "../../components/common/PageHeader";
 import Card from "../../components/common/Card";
-import { postJSON } from "../../lib/http";
+import { postJSON } from "@/lib/http";
 
 // 스크린샷에 있던 서버(월드) 목록에서 "전체"는 제외
 const WORLD_NAMES = [

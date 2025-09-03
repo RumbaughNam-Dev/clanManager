@@ -1,7 +1,7 @@
 // src/components/modals/BossCutManageModal.tsx
 import React, { useEffect, useRef, useState } from "react";
 import Modal from "../common/Modal";
-import { patchJSON, postJSON, requestJSON } from "../../lib/http";
+import { patchJSON, postJSON, requestJSON } from "@/lib/http";
 
 type LootItemDto = {
   id: string;

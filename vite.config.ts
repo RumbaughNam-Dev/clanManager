@@ -1,11 +1,14 @@
+// vite.config.ts
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import * as path from 'path'
 
 export default defineConfig({
   base: '/clanManager/',
   plugins: [react()],
-  build: {
-    sourcemap: true,
-    minify: false,        // ← 일단 끔 (grep/확인 쉬움)
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, 'src'),
+    },
   },
 })

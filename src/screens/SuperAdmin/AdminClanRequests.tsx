@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import Card from "../../components/common/Card";
 import PageHeader from "../../components/common/PageHeader";
 import { useAuth } from "../../contexts/AuthContext";
-import { postJSON } from "../../lib/http";
+import { postJSON } from "@/lib/http";
 
 type Row = {
   id: string;                 // BigInt -> string

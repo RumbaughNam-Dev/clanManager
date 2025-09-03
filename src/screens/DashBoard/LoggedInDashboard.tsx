@@ -1,6 +1,6 @@
 // src/screens/dashboard/LoggedInDashboard.tsx
 import { useState, useEffect, useMemo } from "react";
-import { postJSON } from "../../lib/http";
+import { postJSON } from "@/lib/http";
 import BossCard from "./BossCard";
 import ForgottenCard from "./ForgottenCard";
 import CutModal from "./CutModal";

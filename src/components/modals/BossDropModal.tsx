@@ -1,6 +1,6 @@
 // props: { open: boolean; timelineId?: string | null; ... }
 import { useEffect, useState } from "react";
-import { postJSON } from "../../lib/http";
+import { postJSON } from "@/lib/http";
 
 type LootItemDto = {
   id: string;
