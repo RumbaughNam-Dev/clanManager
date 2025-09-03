@@ -32,6 +32,12 @@ async function handleError(res: Response, url: string, method: string): Promise<
   throw err;
 }
 
+/**
+ * ✅ 모든 요청을 실제로는 POST로 보냄
+ * - URL의 쿼리스트링은 그대로 유지 (백엔드 @Post 핸들러에서 @Query()로 읽기 가능)
+ * - 바디가 있으면 JSON으로 전송
+ * - 헤더에 X-Orig-Method 넣어 디버깅 도움(백엔드에서 안 써도 무방)
+ */
 export async function requestJSON<T>(
   method: "GET" | "POST" | "PATCH" | "DELETE",
   path: string,
@@ -43,6 +49,7 @@ export async function requestJSON<T>(
     ...buildAuthHeader(),
     ...(extraInit?.headers as Record<string, string> | undefined),
     Accept: "application/json",
+    "X-Orig-Method": method, // 디버깅용
   };
 
   let fetchBody: BodyInit | undefined = extraInit?.body as BodyInit | undefined;
@@ -52,8 +59,11 @@ export async function requestJSON<T>(
     fetchBody = JSON.stringify(body);
   }
 
+  // ⬇️ 여기서 실제 메서드는 무조건 POST로 변환
+  const actualMethod = "POST";
+
   const res = await fetch(url, {
-    method,
+    method: actualMethod,
     headers,
     body: fetchBody,
     ...extraInit,
@@ -77,18 +87,16 @@ export async function requestJSON<T>(
   );
 }
 
+// 헬퍼들은 그대로 두되, 내부적으로는 위에서 모두 POST로 전송됨
 export async function getJSON<T>(path: string, init?: RequestInit): Promise<T> {
   return requestJSON<T>("GET", path, undefined, init);
 }
-
 export async function postJSON<T>(path: string, body?: any): Promise<T> {
   return requestJSON<T>("POST", path, body);
 }
-
 export async function patchJSON<T>(path: string, body?: any): Promise<T> {
   return requestJSON<T>("PATCH", path, body);
 }
-
 export async function delJSON<T>(path: string, body?: any): Promise<T> {
   return requestJSON<T>("DELETE", path, body);
 }
