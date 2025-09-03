@@ -54,7 +54,8 @@ export async function requestJSON<T>(
     ...extraHeaders,
     ...buildAuthHeader(),
     Accept: "application/json",
-    "X-Orig-Method": method,
+    "X-Orig-Method": method,      // 디버그용
+    "X-From-HttpWrapper": "1",    // 디버그용
   };
 
   // body가 있으면 JSON으로
@@ -67,8 +68,13 @@ export async function requestJSON<T>(
   // 실제 네트워크 메서드는 항상 POST
   const actualMethod: "POST" = "POST";
 
+  // ✅ fetch 호출 '직전'에 로그
+  // (이 로그는 브라우저 개발자도구 Console 탭에 찍힙니다)
+  // 배포 번들에 포함되었는지 확인하려면 빌드 후 dist의 JS에서 이 문자열이 있는지 grep로 확인하세요.
+  console.log("[http.ts] send", method, "->", actualMethod, url);
+
   const res = await fetch(url, {
-    ...extraInit,         // 사용자가 넘긴 옵션을 먼저 펼치고
+    ...extraInit,         // 사용자가 넘긴 옵션 먼저 펼치고
     method: actualMethod, // 우리가 덮어씌움
     headers,              // 최종 헤더
     body: fetchBody,      // 최종 바디
@@ -85,9 +91,6 @@ export async function requestJSON<T>(
   if (res.status === 204) {
     return undefined as unknown as T;
   }
-
-  headers["X-From-HttpWrapper"] = "1";
-console.log("[http.ts] send", method, "-> POST", url);
 
   const text = await res.text();
   throw new Error(`Expected JSON but got "${ct || "unknown"}". Body(head 200ch): ${text.slice(0, 200)}`);
