@@ -9,8 +9,8 @@ type UserShape = {
   loginId: string;
   role: Role;
   clanId: string | null;
-  clanName?: string | null;       // ✅ 추가
-  serverDisplay?: string | null;  // ✅ 추가
+  clanName?: string | null;
+  serverDisplay?: string | null;
 };
 
 type AuthContextShape = {
@@ -39,31 +39,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     (async () => {
       try {
         const at = localStorage.getItem("accessToken");
-        const rt = localStorage.getItem("refreshToken");
+        if (!at) { setLoading(false); return; }
 
-        // 토큰 전혀 없으면 종료
-        if (!at && !rt) { setLoading(false); return; }
-
-        // 1) refreshToken이 있으면 선제적으로 access 재발급
-        if (rt) {
-          try {
-            const refreshed = await postJSON<{ ok: true; accessToken: string }>("/v1/auth/refresh", { refreshToken: rt });
-            if (refreshed?.accessToken) {
-              localStorage.setItem("accessToken", refreshed.accessToken);
-            }
-          } catch {
-            // 리프레시 실패면 토큰 정리 후 종료
-            cleanupTokens();
-            setUser(null);
-            setLoading(false);
-            return;
-          }
-        }
-
-        // 2) 최신 access로 me 호출
-        const me = await getJSON<{ ok: true; user: { id: string; loginId: string; role: Role; clanId: string | null } }>("/v1/auth/me");
-        setUser(me.user); // ✅ clanName/serverDisplay 같이 세팅
-        setUser({ ...me.user, clanName: localStorage.getItem("clanName") ?? undefined });
+        // ✅ 백엔드 사양: POST /v1/auth/me (JwtAuth)
+        const me = await postJSON<{ ok: true; user: UserShape & { clanName?: string | null; serverDisplay?: string | null } }>(
+          "/v1/auth/me",
+          {} // 바디 없음
+        );
+        setUser({
+          ...me.user,
+          clanName: me.user.clanName ?? localStorage.getItem("clanName") ?? null,
+        });
       } catch {
         cleanupTokens();
         setUser(null);
@@ -74,41 +60,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const login = async (loginId: string, password: string) => {
+    // 백엔드: POST /v1/auth/login -> { ok, user, accessToken, refreshToken?(옵션), clanName? }
     const res = await postJSON<{
       ok: true;
-      user: { id: string; loginId: string; role: Role; clanId: string | null };
+      user: UserShape;
       accessToken: string;
-      refreshToken: string;
+      refreshToken?: string;
       clanName?: string | null;
+      serverDisplay?: string | null;
     }>("/v1/auth/login", { loginId, password });
 
     try {
       localStorage.setItem("accessToken", res.accessToken);
-      localStorage.setItem("refreshToken", res.refreshToken);
-      setUser(res.user);
+      if (res.refreshToken) localStorage.setItem("refreshToken", res.refreshToken);
       if (res.clanName != null) localStorage.setItem("clanName", res.clanName);
       else localStorage.removeItem("clanName");
     } catch {}
-    setUser({ ...res.user, clanName: res.clanName ?? undefined });
+
+    setUser({
+      ...res.user,
+      clanName: res.clanName ?? null,
+      serverDisplay: res.serverDisplay ?? res.user.serverDisplay ?? null,
+    });
   };
 
   const logout = () => {
     cleanupTokens();
     setUser(null);
-    if (typeof window !== "undefined") {
-      window.location.href = "/";
-    }
+    if (typeof window !== "undefined") window.location.href = "/";
   };
 
   const value = useMemo(
-    () => ({
-      user,
-      role: user?.role ?? null,
-      loading,
-      login,
-      setUser,
-      logout,
-    }),
+    () => ({ user, role: user?.role ?? null, loading, login, setUser, logout }),
     [user, loading]
   );
 

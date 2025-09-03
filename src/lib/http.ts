@@ -63,13 +63,11 @@ export async function requestJSON<T>(
     await handleError(res, url, method);
   }
 
-  // JSON 응답만 처리
   const ct = res.headers.get("content-type") || "";
   if (ct.toLowerCase().includes("application/json")) {
     return res.json() as Promise<T>;
   }
   if (res.status === 204) {
-    // no content
     return undefined as unknown as T;
   }
 
@@ -79,7 +77,6 @@ export async function requestJSON<T>(
   );
 }
 
-// src/lib/http.ts
 export async function getJSON<T>(path: string, init?: RequestInit): Promise<T> {
   return requestJSON<T>("GET", path, undefined, init);
 }
