@@ -3,7 +3,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import Card from "../components/common/Card";
 import PageHeader from "../components/common/PageHeader";
 import { useAuth } from "../contexts/AuthContext";
-import { postJSON } from "@/lib/http";
+// ⚠️ 빌드 환경에서 alias가 안 먹는 경우가 있어 상대경로로 고정
+import { postJSON } from "../lib/http";
 
 type Role = "SUPERADMIN" | "ADMIN" | "LEADER" | "USER";
 type MemberRow = {
@@ -26,28 +27,34 @@ export default function Members() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [assigningId, setAssigningId] = useState<string | null>(null);
 
+  // 관리자/간부만 접근
   const canManage = useMemo(() => role === "ADMIN" || role === "LEADER", [role]);
   if (!canManage) return <div className="text-sm text-red-600">접근 권한이 없습니다.</div>;
 
-  const isSelf = (m: MemberRow) => user?.loginId && m.loginId === user.loginId;
+  const isSelf = (m: MemberRow) => (user?.loginId ?? "") === m.loginId;
 
   const load = async () => {
     setLoading(true);
     try {
-      // ✅ 경로 변경: 목록은 /v1/members/list
-      const r = await postJSON<{ ok: true; members: MemberRow[]; count: number }>("/v1/members/list");
-      setList(r.members);
+      // ✅ 목록은 /v1/members/list 로 고정
+      const r = await postJSON<{ ok: true; members: MemberRow[]; count: number }>(
+        "/v1/members/list",
+        {}
+      );
+      setList(r?.members ?? []);
     } catch (e: any) {
-      alert(e.message ?? "목록 조회 실패");
+      alert(e?.body?.message || e?.message || "목록 조회 실패");
+      setList([]);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); /* 초기 1회 */ }, []);
 
   const addMember = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (creating) return;
     if (!loginId || !password) return;
     if (list.length >= MAX_MEMBERS) {
       alert(`혈맹원은 최대 ${MAX_MEMBERS}명까지 등록할 수 있습니다.`);
@@ -55,9 +62,10 @@ export default function Members() {
     }
     setCreating(true);
     try {
-      // 생성은 그대로 /v1/members
+      // ✅ 생성은 /v1/members
       await postJSON("/v1/members", { loginId, password, role: "USER" });
-      setLoginId(""); setPassword("");
+      setLoginId("");
+      setPassword("");
       await load();
     } catch (e: any) {
       const msg = e?.body?.message || e?.message || "생성 실패";
@@ -75,7 +83,7 @@ export default function Members() {
       await postJSON(`/v1/members/${m.id}/role`, { role: next });
       setList((prev) => prev.map(x => x.id === m.id ? { ...x, role: next as Role } : x));
     } catch (e: any) {
-      alert(e?.body?.message || e.message || "권한 변경 실패");
+      alert(e?.body?.message || e?.message || "권한 변경 실패");
     } finally {
       setChangingId(null);
     }
@@ -90,12 +98,15 @@ export default function Members() {
     if (!confirm(`정말 ${m.loginId}에게 관리자 권한을 위임할까요? 현재 관리자는 간부로 내려갑니다.`)) return;
     setAssigningId(m.id);
     try {
-      await postJSON<{ ok: true; demoted: number; promotedId: string; newRole: string }>(`/v1/members/${m.id}/assign-admin`, {});
+      await postJSON<{ ok: true; demoted: number; promotedId: string; newRole: string }>(
+        `/v1/members/${m.id}/assign-admin`,
+        {}
+      );
       await load();
       alert("관리자 권한을 위임했습니다. 다시 로그인해 주세요.");
       logout();
     } catch (e: any) {
-      alert(e?.body?.message || e.message || "관리자 위임 실패");
+      alert(e?.body?.message || e?.message || "관리자 위임 실패");
     } finally {
       setAssigningId(null);
     }
@@ -112,18 +123,17 @@ export default function Members() {
       await postJSON(`/v1/members/${m.id}/delete`, {});
       setList((prev) => prev.filter(x => x.id !== m.id));
     } catch (e: any) {
-      alert(e?.body?.message || e.message || "삭제 실패");
+      alert(e?.body?.message || e?.message || "삭제 실패");
     } finally {
       setDeletingId(null);
     }
   };
 
-  function fmtDate(s?: string | null) {
+  const fmtDate = (s?: string | null) => {
     if (!s) return "-";
     const d = new Date(s);
-    if (Number.isNaN(d.getTime())) return s;
-    return d.toLocaleString("ko-KR", { hour12: false });
-  }
+    return Number.isNaN(d.getTime()) ? s : d.toLocaleString("ko-KR", { hour12: false });
+  };
 
   return (
     <div className="space-y-4">
@@ -204,6 +214,7 @@ export default function Members() {
                       </td>
                       <td className="py-2 pr-4">{fmtDate(m.createdAt)}</td>
                       <td className="py-2 text-right space-x-2">
+                        {/* 간부 지정/해제: 관리자만, 자기 자신 금지, 관리자 대상 금지 */}
                         {iAmAdmin && !self && (
                           <button
                             disabled={changingId === m.id || isTargetAdmin}
@@ -215,6 +226,7 @@ export default function Members() {
                           </button>
                         )}
 
+                        {/* 관리자 위임: 관리자만 / 자기 자신 금지 / 대상은 간부일 때만 노출(정책에 맞춤) */}
                         {iAmAdmin && !self && isTargetLeader && (
                           <button
                             disabled={assigningId === m.id}
@@ -225,6 +237,7 @@ export default function Members() {
                           </button>
                         )}
 
+                        {/* 삭제: 자기 자신 금지, 간부는 USER만 삭제 가능 */}
                         <button
                           disabled={
                             deletingId === m.id ||
