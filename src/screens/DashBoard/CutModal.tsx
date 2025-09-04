@@ -55,7 +55,7 @@ export default function CutModal({
 
   async function loadMembers() {
     try {
-      const r = await postJSON<{ ok: true; members: MemberRow[] }>("/v1/members");
+      const r = await postJSON<{ ok: true; members: MemberRow[] }>("/v1/members/list");
       if (!r.ok) throw new Error("멤버 목록 조회 실패");
       setMembers(r.members);
     } catch (e: any) {
