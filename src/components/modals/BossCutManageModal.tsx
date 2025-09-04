@@ -78,7 +78,7 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
     if (!timelineId) return;
     try {
       setLoading(true);
-      const res = await postJSON<DetailResp>(`/v1/boss-timelines/${timelineId}`, {}); // ← POST
+      const res = await postJSON<DetailResp>(`/v1/boss-timelines/${timelineId}`);
       setData(res.item);
       setErr(null);
       const next: Record<string, string> = {};
@@ -103,7 +103,7 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
     setData(null);
 
     try {
-      const res = await postJSON<DetailResp>(`/v1/boss-timelines/${timelineId}`, {}); // ← POST
+      const res = await postJSON<DetailResp>(`/v1/boss-timelines/${timelineId}`);
       setData(res.item);
       setActiveItemId(res.item.items?.[0]?.id ?? null);
       const next: Record<string, string> = {};
