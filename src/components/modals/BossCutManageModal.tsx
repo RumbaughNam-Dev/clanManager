@@ -1,7 +1,7 @@
 // src/components/modals/BossCutManageModal.tsx
 import React, { useEffect, useRef, useState } from "react";
 import Modal from "../common/Modal";
-import { patchJSON, postJSON, requestJSON } from "@/lib/http";
+import { postJSON } from "@/lib/http"; // ← patchJSON, requestJSON 제거
 
 type LootItemDto = {
   id: string;
@@ -78,20 +78,13 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
     if (!timelineId) return;
     try {
       setLoading(true);
-      const res = await postJSON<DetailResp>(`/v1/boss-timelines/${timelineId}`);
+      const res = await postJSON<DetailResp>(`/v1/boss-timelines/${timelineId}`, {}); // ← POST
       setData(res.item);
       setErr(null);
-
       const next: Record<string, string> = {};
-      for (const it of res.item.items) {
-        next[it.id] = typeof it.soldPrice === "number" ? String(it.soldPrice) : "";
-      }
+      for (const it of res.item.items) next[it.id] = typeof it.soldPrice === "number" ? String(it.soldPrice) : "";
       setSellInput(next);
-
-      if (!activeItemId) {
-        const firstItemId = res.item.items?.[0]?.id ?? null;
-        setActiveItemId(firstItemId);
-      }
+      if (!activeItemId) setActiveItemId(res.item.items?.[0]?.id ?? null);
     } catch (e: any) {
       setErr(e?.message ?? "데이터를 불러오지 못했습니다.");
     } finally {
@@ -101,7 +94,6 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
 
   async function load() {
     if (!open || !timelineId) return;
-
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
@@ -111,21 +103,11 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
     setData(null);
 
     try {
-      const res = await requestJSON<DetailResp>(
-        "GET",
-        `/v1/boss-timelines/${timelineId}`,
-        undefined,
-        { signal: ac.signal }
-      );
-
+      const res = await postJSON<DetailResp>(`/v1/boss-timelines/${timelineId}`, {}); // ← POST
       setData(res.item);
-      const firstItemId = res.item.items?.[0]?.id ?? null;
-      setActiveItemId(firstItemId);
-
+      setActiveItemId(res.item.items?.[0]?.id ?? null);
       const next: Record<string, string> = {};
-      for (const it of res.item.items) {
-        next[it.id] = typeof it.soldPrice === "number" ? String(it.soldPrice) : "";
-      }
+      for (const it of res.item.items) next[it.id] = typeof it.soldPrice === "number" ? String(it.soldPrice) : "";
       setSellInput(next);
     } catch (e: any) {
       if (e?.name === "AbortError" || e?.message?.includes("The user aborted a request")) return;
@@ -183,10 +165,10 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
       alert("판매가를 숫자로 입력하세요. (세금을 제한 실제 정산가)");
       return;
     }
-
     try {
       setSavingItemId(itemId);
-      await patchJSON(`/v1/boss-timelines/${timelineId}/items/${itemId}/sell`, { soldPrice: price });
+      // ← PATCH → POST 변경 (백엔드도 @Post로 바뀜)
+      await postJSON(`/v1/boss-timelines/${timelineId}/items/${itemId}/sell`, { soldPrice: price });
       await reloadDetail();
       onSaved?.();
     } catch (e: any) {
@@ -201,11 +183,12 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
   async function markPaid(recipientLoginId: string, itemId: string) {
     if (!timelineId) return;
     try {
-      await patchJSON(
+      // ← PATCH → POST 변경 (백엔드도 @Post로 바뀜)
+      await postJSON(
         `/v1/boss-timelines/${timelineId}/items/${itemId}/distributions/${encodeURIComponent(recipientLoginId)}`,
         { isPaid: true }
       );
-      await reloadDetail(); // 팝업은 닫지 않음
+      await reloadDetail();
       onSaved?.();
     } catch (e: any) {
       console.error("[markPaid] failed:", e);
