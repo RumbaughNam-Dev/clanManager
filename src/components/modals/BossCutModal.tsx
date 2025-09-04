@@ -16,25 +16,32 @@ type MemberRow = {
   role: "SUPERADMIN" | "ADMIN" | "LEADER" | "USER";
 };
 
-export default function BossCutModal({ boss, onClose, onSaved }: Props) {
-  // 아이템 입력칸 5개
-  const [lootInputs, setLootInputs] = useState<string[]>(["", "", "", "", ""]);
+type Row = {
+  item: string;
+  looterInput: string;     // 타이핑 값(자동완성 선택 안 해도 이 값이 그대로 전송)
+  looterSelected: string;  // 자동완성으로 확정된 값(있으면 우선)
+  isComposing?: boolean;   // 한글/IME 조합 입력 상태
+};
 
-  // 루팅자(자동완성): 화면 입력값 / 확정 선택값 분리
-  const [looterInput, setLooterInput] = useState("");
-  const [looterLoginId, setLooterLoginId] = useState("");
+const MAX_ROWS = 5;
+
+export default function BossCutModal({ boss, onClose, onSaved }: Props) {
+  // 5줄: 아이템 + 루팅자
+  const [rows, setRows] = useState<Row[]>(
+    Array.from({ length: MAX_ROWS }, () => ({ item: "", looterInput: "", looterSelected: "", isComposing: false }))
+  );
 
   const [mode, setMode] = useState<Mode>("DISTRIBUTE");
   const [participantsText, setParticipantsText] = useState("");
   const [image, setImage] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // 자동완성 동작 관련 상태
-  const [focusRow, setFocusRow] = useState<number | null>(null); // 어떤 줄에서 자동완성 열렸는지
+  // 자동완성 제어 상태
+  const [focusRow, setFocusRow] = useState<number | null>(null);
   const [activeSugIdx, setActiveSugIdx] = useState(0);
   const sugBoxRef = useRef<HTMLDivElement | null>(null);
 
-  // 멤버 목록: 1회 로드 후 클라에서 LIKE 필터
+  // 멤버 목록
   const [members, setMembers] = useState<MemberRow[]>([]);
   const [memLoading, setMemLoading] = useState(false);
   const [memErr, setMemErr] = useState<string | null>(null);
@@ -53,114 +60,143 @@ export default function BossCutModal({ boss, onClose, onSaved }: Props) {
     })();
   }, []);
 
-  // 파싱 결과
-  const lootItems = useMemo(
-    () => lootInputs.map((s) => s.trim()).filter(Boolean),
-    [lootInputs]
-  );
+  // 참여자 파싱
   const participants = useMemo(
     () => participantsText.split(",").map((s) => s.trim()).filter(Boolean),
     [participantsText]
   );
 
-  // 자동완성 후보
+  // 자동완성 후보(현재 포커스 줄 기준)
   const looterSuggestions = useMemo(() => {
-    const q = looterInput.trim().toLowerCase();
+    if (focusRow == null) return [] as MemberRow[];
+    const q = rows[focusRow]?.looterInput.trim().toLowerCase() ?? "";
     if (!q) return [] as MemberRow[];
-    const roleRank = (r: MemberRow["role"]) =>
+    const rank = (r: MemberRow["role"]) =>
       r === "ADMIN" ? 0 : r === "LEADER" ? 1 : r === "SUPERADMIN" ? 2 : 3;
     return members
       .filter((m) => m.loginId.toLowerCase().includes(q))
       .sort((a, b) => {
-        const ra = roleRank(a.role);
-        const rb = roleRank(b.role);
+        const ra = rank(a.role), rb = rank(b.role);
         if (ra !== rb) return ra - rb;
         return a.loginId.localeCompare(b.loginId);
       })
       .slice(0, 8);
-  }, [looterInput, members]);
+  }, [focusRow, rows, members]);
 
-  // 검증
-  const validationError = useMemo(() => {
-    if (lootItems.length > 0) {
-      if (!looterLoginId) return "루팅 아이디를 선택하세요.";
-      if (mode === "DISTRIBUTE" && participants.length === 0)
-        return "분배를 선택한 경우 참여자 아이디를 입력하세요.";
-    }
-    return null;
-  }, [lootItems, looterLoginId, mode, participants]);
-
-  // 루팅자 선택(확정)
-  function chooseLooter(loginId: string) {
-    setLooterLoginId(loginId);
-    setLooterInput(loginId); // 입력칸에 반영
+  // 자동완성 확정
+  function chooseLooter(rowIdx: number, loginId: string) {
+    setRows(prev => {
+      const next = [...prev];
+      next[rowIdx] = { ...next[rowIdx], looterSelected: loginId, looterInput: loginId };
+      return next;
+    });
   }
 
-  // 키보드 탐색
-  function onLooterKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+  // ↑/↓/Enter
+  function onLooterKeyDown(e: React.KeyboardEvent<HTMLInputElement>, rowIdx: number) {
     if (!looterSuggestions.length) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActiveSugIdx((i) => Math.min(i + 1, looterSuggestions.length - 1));
+      setActiveSugIdx(i => Math.min(i + 1, looterSuggestions.length - 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setActiveSugIdx((i) => Math.max(i - 1, 0));
+      setActiveSugIdx(i => Math.max(i - 1, 0));
     } else if (e.key === "Enter") {
-      e.preventDefault();
-      const picked = looterSuggestions[activeSugIdx];
-      if (picked) chooseLooter(picked.loginId);
-      setFocusRow(null);
+      // 조합 입력 중 Enter는 확정용이니 막지 않음
+      const isComp = rows[rowIdx]?.isComposing;
+      if (!isComp) {
+        e.preventDefault();
+        const picked = looterSuggestions[activeSugIdx];
+        if (picked) chooseLooter(rowIdx, picked.loginId);
+        setFocusRow(null);
+      }
     }
   }
 
-  // blur 시 자동완성 박스 닫기(클릭 선택 허용 위해 약간 지연)
+  // blur 후 살짝 지연 닫기(클릭 선택 허용)
   function closeSuggestionWithDelay() {
     setTimeout(() => setFocusRow(null), 120);
+  }
+
+  // (1) 이미지가 있으면 먼저 업로드해서 fileName 획득
+  async function uploadImageIfAny(): Promise<string | undefined> {
+    if (!image) return undefined;
+    const API_BASE =
+      (import.meta as any)?.env?.VITE_API_BASE ?? "http://localhost:3000";
+    const url = `${API_BASE.replace(/\/+$/, "")}/v1/dashboard/bosses/${boss.id}/cut/upload`;
+
+    const fd = new FormData();
+    fd.append("file", image);
+
+    const headers: Record<string, string> = {};
+    const t = typeof localStorage !== "undefined" ? localStorage.getItem("accessToken") : null;
+    if (t) headers["Authorization"] = `Bearer ${t}`;
+
+    const res = await fetch(url, { method: "POST", headers, body: fd });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      throw new Error(`이미지 업로드 실패 (${res.status}): ${txt || res.statusText}`);
+    }
+    const json = await res.json();
+    if (!json?.ok || !json?.fileName) throw new Error("이미지 업로드 응답이 올바르지 않습니다.");
+    return json.fileName as string;
   }
 
   // 제출
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (saving) return;
-    if (validationError) {
-      alert(validationError);
+
+    // 아이템 입력된 줄만 남김(인덱스 뒤틀림 방지)
+    const filledRows = rows.filter(r => r.item.trim().length > 0);
+
+    // 분배 모드일 때만 참여자 필수
+    if (filledRows.length > 0 && mode === "DISTRIBUTE" && participants.length === 0) {
+      alert("분배를 선택한 경우 참여자 아이디를 입력하세요.");
       return;
     }
 
+    // 조합 입력 중이면 먼저 확정
+    const normalized = filledRows.map(r => {
+      const lootUserTyped = (r.looterSelected || r.looterInput || "").trim();
+      return {
+        name: r.item.trim(),
+        lootUserId: lootUserTyped === "" ? null : lootUserTyped, // 빈문자 → null
+      };
+    });
+
     setSaving(true);
     try {
-      const form = new FormData();
-      form.append(
-        "payload",
-        JSON.stringify({
-          lootItems, // string[]
-          looterLoginId: looterLoginId || null, // 선택값
-          mode, // "DISTRIBUTE" | "TREASURY"
-          participants, // string[]
-        })
-      );
-      if (image) form.append("image", image);
+      const imageFileName = await uploadImageIfAny();
 
-      const url = `/v1/dashboard/bosses/${boss.id}/cut`;
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          // FormData는 Content-Type 지정 금지(boundary 자동)
-          Authorization: (() => {
-            try {
-              return `Bearer ${localStorage.getItem("accessToken") ?? ""}`;
-            } catch {
-              return "";
-            }
-          })(),
-        } as any,
-        body: form,
+      // 레거시 호환 필드
+      const lootItems = normalized.map(n => n.name);
+      const lootUsers = normalized.map(n => n.lootUserId ?? "");
+      const firstLooter = lootUsers.find(s => s.length > 0) || null;
+
+      // 디버그 로그 (Console 탭에서 rows / payload 확인)
+      console.log("[BossCutModal] rows =", rows);
+      console.log("[BossCutModal] payload =", {
+        // cutAtIso는 서버에서 저장시간 사용(필요시 추가)
+        looterLoginId: firstLooter,
+        items: lootItems,
+        lootUsers,
+        itemsEx: normalized,      // ✅ { name, lootUserId }
+        mode,
+        participants,
+        imageFileName,
       });
 
-      if (!res.ok) {
-        const txt = await res.text().catch(() => "");
-        throw new Error(`${res.status} ${res.statusText} :: ${txt}`);
-      }
+      await postJSON(`/v1/dashboard/bosses/${boss.id}/cut`, {
+        looterLoginId: firstLooter, // 레거시
+        items: lootItems,           // 레거시
+        lootUsers,                  // 레거시-인덱스 호환
+        itemsEx: normalized,        // ✅ 권장: { name, lootUserId }
+        mode,
+        participants,
+        imageFileName,
+      });
+
       onSaved();
     } catch (err: any) {
       alert(err?.message ?? "저장 실패");
@@ -176,47 +212,68 @@ export default function BossCutModal({ boss, onClose, onSaved }: Props) {
       {/* modal */}
       <form
         onSubmit={onSubmit}
-        className="relative w-[720px] max-w-[95vw] bg-white rounded-2xl shadow-xl p-5 space-y-4"
+        className="relative w-[760px] max-w-[95vw] bg-white rounded-2xl shadow-xl p-5 space-y-4"
       >
         <div className="text-lg font-bold">보스 컷 기록 · {boss.name}</div>
 
-        {/* 루팅 아이템(5개) + 루팅자 검색(공유) */}
+        {/* 5줄: 아이템 + 루팅자 */}
         <div className="space-y-2">
-          <div className="text-sm font-medium">루팅 아이템 (최대 5개)</div>
+          <div className="text-sm font-medium">루팅 아이템 / 루팅자 (최대 5개)</div>
 
-          {lootInputs.map((val, idx) => (
+          {rows.map((r, idx) => (
             <div key={idx} className="grid grid-cols-5 gap-2">
               {/* 아이템명 */}
               <input
                 className="col-span-3 border rounded-lg px-3 py-2"
                 placeholder={`아이템 #${idx + 1}`}
-                value={val}
+                value={r.item}
                 onChange={(e) => {
-                  const next = [...lootInputs];
-                  next[idx] = e.target.value;
-                  setLootInputs(next);
+                  const v = e.currentTarget.value;
+                  setRows(prev => {
+                    const next = [...prev];
+                    next[idx] = { ...next[idx], item: v };
+                    return next;
+                  });
                 }}
               />
 
-              {/* 루팅자 검색(공유 입력칸) */}
+              {/* 루팅자 입력/검색(줄별) */}
               <div className="col-span-2 relative">
                 <input
                   className="w-full border rounded-lg px-3 py-2"
-                  placeholder="루팅자 아이디 검색"
-                  value={looterInput}
-                  onFocus={() => {
-                    setFocusRow(idx);
-                    setActiveSugIdx(0);
+                  placeholder="루팅자 아이디 입력/검색"
+                  value={r.looterInput}
+                  onFocus={() => { setFocusRow(idx); setActiveSugIdx(0); }}
+                  onCompositionStart={() => {
+                    setRows(prev => {
+                      const next = [...prev];
+                      next[idx] = { ...next[idx], isComposing: true };
+                      return next;
+                    });
+                  }}
+                  onCompositionEnd={(e) => {
+                    const v = (e.target as HTMLInputElement).value;
+                    setRows(prev => {
+                      const next = [...prev];
+                      next[idx] = { ...next[idx], looterInput: v, isComposing: false };
+                      return next;
+                    });
                   }}
                   onChange={(e) => {
-                    setLooterInput(e.target.value);
-                    setLooterLoginId(""); // 새로 타이핑하면 확정 해제
+                    const v = e.currentTarget.value;
+                    setRows(prev => {
+                      const next = [...prev];
+                      // 자동완성 선택 안 해도 전송되도록 입력값을 유지
+                      next[idx] = { ...next[idx], looterInput: v, looterSelected: "" };
+                      return next;
+                    });
                   }}
-                  onKeyDown={onLooterKeyDown}
+                  onKeyDown={(e) => onLooterKeyDown(e, idx)}
                   onBlur={closeSuggestionWithDelay}
                 />
-                {/* 자동완성 드롭다운 */}
-                {focusRow === idx && looterInput.trim() && (
+
+                {/* 자동완성 */}
+                {focusRow === idx && r.looterInput.trim() && (
                   <div
                     ref={sugBoxRef}
                     className="absolute left-0 right-0 mt-1 max-h-48 overflow-auto border rounded-lg bg-white shadow z-10"
@@ -236,26 +293,31 @@ export default function BossCutModal({ boss, onClose, onSaved }: Props) {
                           }`}
                           onMouseDown={(ev) => ev.preventDefault()}
                           onClick={() => {
-                            chooseLooter(m.loginId);
+                            chooseLooter(idx, m.loginId);
                             setFocusRow(null);
                           }}
                           title={
-                            m.role === "ADMIN" ? "관리자" : m.role === "LEADER" ? "간부" : m.role === "SUPERADMIN" ? "슈퍼관리자" : "혈맹원"
+                            m.role === "ADMIN" ? "관리자" :
+                            m.role === "LEADER" ? "간부" :
+                            m.role === "SUPERADMIN" ? "슈퍼관리자" : "혈맹원"
                           }
                         >
                           <span className="font-medium">{m.loginId}</span>
                           <span className="ml-2 text-xs text-slate-500">
-                            {m.role === "ADMIN"
-                              ? "관리자"
-                              : m.role === "LEADER"
-                              ? "간부"
-                              : m.role === "SUPERADMIN"
-                              ? "슈퍼관리자"
-                              : "혈맹원"}
+                            {m.role === "ADMIN" ? "관리자" :
+                             m.role === "LEADER" ? "간부" :
+                             m.role === "SUPERADMIN" ? "슈퍼관리자" : "혈맹원"}
                           </span>
                         </div>
                       ))
                     )}
+                  </div>
+                )}
+
+                {/* 선택 안내(선택했을 때만 노출) */}
+                {r.looterSelected && (
+                  <div className="mt-1 text-xs text-emerald-700">
+                    선택됨: <span className="font-semibold">{r.looterSelected}</span>
                   </div>
                 )}
               </div>
@@ -263,13 +325,8 @@ export default function BossCutModal({ boss, onClose, onSaved }: Props) {
           ))}
 
           <p className="text-xs text-gray-500">
-            아이템이 없으면 비워두세요. (루팅자는 아이템이 1개 이상일 때 필수)
+            아이템만 입력해도 저장됩니다. 루팅자는 <b>자동완성 선택 없이 타이핑만 해도 전송</b>돼요.
           </p>
-          {looterLoginId && (
-            <p className="text-xs text-emerald-700">
-              선택된 루팅자: <span className="font-semibold">{looterLoginId}</span>
-            </p>
-          )}
         </div>
 
         {/* 처리 방식 / 참여자 */}
@@ -277,34 +334,12 @@ export default function BossCutModal({ boss, onClose, onSaved }: Props) {
           <div>
             <label className="block text-sm font-medium mb-1">처리 방식</label>
             <div className="flex gap-2">
-              <label
-                className={`px-3 py-2 rounded-lg border cursor-pointer ${
-                  mode === "DISTRIBUTE" ? "bg-slate-900 text-white" : "bg-white hover:bg-slate-50"
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="mode"
-                  value="DISTRIBUTE"
-                  className="hidden"
-                  checked={mode === "DISTRIBUTE"}
-                  onChange={() => setMode("DISTRIBUTE")}
-                />
+              <label className={`px-3 py-2 rounded-lg border cursor-pointer ${mode === "DISTRIBUTE" ? "bg-slate-900 text-white" : "bg-white hover:bg-slate-50"}`}>
+                <input type="radio" name="mode" value="DISTRIBUTE" className="hidden" checked={mode === "DISTRIBUTE"} onChange={() => setMode("DISTRIBUTE")} />
                 분배
               </label>
-              <label
-                className={`px-3 py-2 rounded-lg border cursor-pointer ${
-                  mode === "TREASURY" ? "bg-slate-900 text-white" : "bg-white hover:bg-slate-50"
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="mode"
-                  value="TREASURY"
-                  className="hidden"
-                  checked={mode === "TREASURY"}
-                  onChange={() => setMode("TREASURY")}
-                />
+              <label className={`px-3 py-2 rounded-lg border cursor-pointer ${mode === "TREASURY" ? "bg-slate-900 text-white" : "bg-white hover:bg-slate-50"}`}>
+                <input type="radio" name="mode" value="TREASURY" className="hidden" checked={mode === "TREASURY"} onChange={() => setMode("TREASURY")} />
                 혈비 귀속
               </label>
             </div>

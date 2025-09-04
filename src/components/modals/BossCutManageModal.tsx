@@ -1,7 +1,8 @@
 // src/components/modals/BossCutManageModal.tsx
 import React, { useEffect, useRef, useState } from "react";
 import Modal from "../common/Modal";
-import { postJSON } from "@/lib/http"; // ← patchJSON, requestJSON 제거
+import { postJSON } from "@/lib/http";
+import { useAuth } from "@/contexts/AuthContext";
 
 type LootItemDto = {
   id: string;
@@ -11,7 +12,7 @@ type LootItemDto = {
   toTreasury?: boolean;
   soldPrice?: number | null;
   soldAt?: string | null;
-  looterLoginId?: string | null;
+  looterLoginId?: string | null; // ✅ per-item 루팅자
 };
 
 type DistributionDto = {
@@ -28,7 +29,7 @@ type DetailResp = {
     id: string;
     bossName: string;
     cutAt: string;       // ISO
-    createdBy: string;   // 기록자
+    createdBy: string;   // 기록자(loginId)
     items: LootItemDto[];
     distributions: DistributionDto[];
   };
@@ -42,6 +43,9 @@ type Props = {
 };
 
 export default function BossCutManageModal({ open, timelineId, onClose, onSaved }: Props) {
+  const { user } = useAuth(); // ✅ 현재 로그인 사용자 (user?.loginId 사용)
+  const myId = user?.loginId ?? null;
+
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [data, setData] = useState<DetailResp["item"] | null>(null);
@@ -152,6 +156,26 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
     return <span className="text-[11px] text-amber-300">판매완료 (분배미완)</span>;
   }
 
+  // ✅ 권한 체크
+  const isCreator = (loginId?: string | null) => !!loginId && !!data && loginId === data.createdBy;
+  const isLooterOf = (it: LootItemDto, loginId?: string | null) =>
+    !!loginId && !!it.looterLoginId && it.looterLoginId === loginId;
+
+  const canCompleteSale = (it: LootItemDto) =>
+    !!myId && (!!data && (myId === data.createdBy || isLooterOf(it, myId)));
+
+  const canMarkPaid = (d: DistributionDto, parentItem?: LootItemDto | undefined) => {
+    if (!myId) return false;
+    if (!data) return false;
+    // 작성자: 모두 가능
+    if (myId === data.createdBy) return true;
+    // 본인(수령자): 가능
+    if (d.recipientLoginId === myId) return true;
+    // 해당 아이템 루팅자: 그 아이템에 대해서만 가능
+    if (parentItem && isLooterOf(parentItem, myId)) return true;
+    return false;
+  };
+
   const filteredDists = (data?.distributions ?? []).filter(d => {
     if (!activeItemId) return false;
     return d.lootItemId === activeItemId;
@@ -159,6 +183,15 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
 
   async function completeSale(itemId: string) {
     if (!timelineId || !data) return;
+    const item = data.items.find(x => x.id === itemId);
+    if (!item) return;
+
+    // 권한 체크 (작성자 or 해당 아이템 루팅자)
+    if (!canCompleteSale(item)) {
+      alert("판매처리는 보스컷 작성자 또는 해당 아이템 루팅자만 가능합니다.");
+      return;
+    }
+
     const raw = (sellInput[itemId] ?? "").trim();
     const price = Number(raw.replace(/[, ]/g, ""));
     if (!Number.isFinite(price) || price <= 0) {
@@ -167,7 +200,6 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
     }
     try {
       setSavingItemId(itemId);
-      // ← PATCH → POST 변경 (백엔드도 @Post로 바뀜)
       await postJSON(`/v1/boss-timelines/${timelineId}/items/${itemId}/sell`, { soldPrice: price });
       await reloadDetail();
       onSaved?.();
@@ -181,9 +213,16 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
 
   // ▶ 분배완료 처리 (미완료자용 버튼)
   async function markPaid(recipientLoginId: string, itemId: string) {
-    if (!timelineId) return;
+    if (!timelineId || !data) return;
+    const parentItem = data.items.find(x => x.id === itemId);
+
+    // 권한 체크: 작성자 or 본인(수령자) or 해당 아이템 루팅자
+    if (!canMarkPaid({ lootItemId: itemId, recipientLoginId, isPaid: false }, parentItem)) {
+      alert("분배처리는 해당 아이템 루팅자/보스컷 작성자/분배받는 본인만 가능합니다.");
+      return;
+    }
+
     try {
-      // ← PATCH → POST 변경 (백엔드도 @Post로 바뀜)
       await postJSON(
         `/v1/boss-timelines/${timelineId}/items/${itemId}/distributions/${encodeURIComponent(recipientLoginId)}`,
         { isPaid: true }
@@ -240,8 +279,8 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
             <div className="border rounded-lg overflow-hidden">
               <table className="w-full text-sm">
                 <colgroup>
-                  <col style={{ width: "20%" }} />
-                  <col style={{ width: "50%" }} />
+                  <col style={{ width: "22%" }} />
+                  <col style={{ width: "48%" }} />
                   <col style={{ width: "30%" }} />
                 </colgroup>
                 <thead>
@@ -254,10 +293,16 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
                 <tbody>
                   {data.items.map(it => {
                     const treasury = isTreasuryItem(it);
+                    const looter = it.looterLoginId ?? "—";
+                    const allowSale = canCompleteSale(it);
+
                     return (
                       <tr key={it.id} className="border-t">
                         <td className="py-2 px-3">
                           <div className="font-medium">{it.itemName}</div>
+                          <div className="text-[12px] text-slate-500 mt-0.5">
+                            루팅자: <span className="font-medium">{looter}</span>
+                          </div>
                           {treasury && <div className="text-[11px] text-amber-600 mt-0.5">혈비 귀속</div>}
                         </td>
 
@@ -284,20 +329,31 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
                                   if (e.key === "Enter") e.preventDefault();
                                 }}
                                 inputMode="numeric"
+                                disabled={!allowSale}
+                                title={allowSale ? "" : "보스컷 작성자 또는 해당 아이템 루팅자만 판매처리가 가능합니다."}
                               />
                               <div
                                 role="button"
                                 tabIndex={0}
-                                className={`px-3 py-1.5 rounded-lg text-white cursor-pointer select-none ${
-                                  savingItemId === it.id ? "bg-gray-300" : "bg-slate-900 hover:opacity-90"
+                                className={`px-3 py-1.5 rounded-lg text-white select-none ${
+                                  savingItemId === it.id
+                                    ? "bg-gray-300"
+                                    : allowSale
+                                    ? "bg-slate-900 hover:opacity-90 cursor-pointer"
+                                    : "bg-gray-300 cursor-not-allowed"
                                 }`}
                                 onMouseDown={(ev) => { ev.preventDefault(); ev.stopPropagation(); }}
                                 onClick={(ev) => {
                                   ev.preventDefault();
                                   ev.stopPropagation();
+                                  if (!allowSale) {
+                                    alert("판매처리는 보스컷 작성자 또는 해당 아이템 루팅자만 가능합니다.");
+                                    return;
+                                  }
                                   completeSale(it.id);
                                 }}
-                                aria-disabled={savingItemId === it.id}
+                                aria-disabled={savingItemId === it.id || !allowSale}
+                                title={allowSale ? "" : "보스컷 작성자 또는 해당 아이템 루팅자만 판매처리가 가능합니다."}
                               >
                                 {savingItemId === it.id ? "저장 중…" : "판매완료"}
                               </div>
@@ -332,6 +388,7 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
                       className={`cursor-pointer inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm
                         ${selected ? "bg-slate-900 text-white border-slate-900" : "bg-white hover:bg-slate-50 border-slate-200"}`}
                       onClick={() => setActiveItemId(it.id)}
+                      title={it.looterLoginId ? `루팅자: ${it.looterLoginId}` : "루팅자: —"}
                     >
                       <input
                         type="radio"
@@ -341,6 +398,11 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
                         className="hidden"
                       />
                       <span className="font-medium">{it.itemName}</span>
+                      {it.looterLoginId && (
+                        <span className="text-[11px] opacity-80">
+                          @{it.looterLoginId}
+                        </span>
+                      )}
                       {isTreasuryItem(it)
                         ? <span className="text-[11px] text-emerald-200">혈비귀속 완료</span>
                         : tabBadge(it)}
@@ -386,6 +448,8 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
                         }
                       }
 
+                      const allowMarkPaid = canMarkPaid(d, parentItem);
+
                       return (
                         <tr key={`${d.lootItemId}-${d.recipientLoginId}`} className="border-t">
                           <td className="py-2 px-2">{d.recipientLoginId}</td>
@@ -401,8 +465,24 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
                             {!treasury && sold && !d.isPaid ? (
                               <button
                                 type="button"
-                                className="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs"
-                                onClick={() => markPaid(d.recipientLoginId, parentItem!.id)}
+                                className={`px-3 py-1.5 rounded-lg text-xs ${
+                                  allowMarkPaid
+                                    ? "bg-slate-900 text-white hover:opacity-90"
+                                    : "bg-gray-300 text-white cursor-not-allowed"
+                                }`}
+                                onClick={() => {
+                                  if (!allowMarkPaid) {
+                                    alert("분배처리는 해당 아이템 루팅자/보스컷 작성자/분배받는 본인만 가능합니다.");
+                                    return;
+                                  }
+                                  markPaid(d.recipientLoginId, parentItem!.id);
+                                }}
+                                disabled={!allowMarkPaid}
+                                title={
+                                  allowMarkPaid
+                                    ? ""
+                                    : "분배처리는 해당 아이템 루팅자/보스컷 작성자/분배받는 본인만 가능합니다."
+                                }
                               >
                                 분배완료처리
                               </button>
