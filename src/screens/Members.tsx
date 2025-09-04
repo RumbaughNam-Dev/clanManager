@@ -1,3 +1,4 @@
+// src/screens/Members.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import Card from "../components/common/Card";
 import PageHeader from "../components/common/PageHeader";
@@ -15,7 +16,7 @@ type MemberRow = {
 const MAX_MEMBERS = 49;
 
 export default function Members() {
-  const { role, user, logout } = useAuth(); // ← logout 사용
+  const { role, user, logout } = useAuth();
   const [loading, setLoading] = useState(true);
   const [list, setList] = useState<MemberRow[]>([]);
   const [loginId, setLoginId] = useState("");
@@ -33,7 +34,8 @@ export default function Members() {
   const load = async () => {
     setLoading(true);
     try {
-      const r = await postJSON<{ ok: true; members: MemberRow[]; count: number }>("/v1/members");
+      // ✅ 경로 변경: 목록은 /v1/members/list
+      const r = await postJSON<{ ok: true; members: MemberRow[]; count: number }>("/v1/members/list");
       setList(r.members);
     } catch (e: any) {
       alert(e.message ?? "목록 조회 실패");
@@ -53,6 +55,7 @@ export default function Members() {
     }
     setCreating(true);
     try {
+      // 생성은 그대로 /v1/members
       await postJSON("/v1/members", { loginId, password, role: "USER" });
       setLoginId(""); setPassword("");
       await load();
@@ -90,7 +93,7 @@ export default function Members() {
       await postJSON<{ ok: true; demoted: number; promotedId: string; newRole: string }>(`/v1/members/${m.id}/assign-admin`, {});
       await load();
       alert("관리자 권한을 위임했습니다. 다시 로그인해 주세요.");
-      logout(); // ✅ 안내 후 즉시 로그아웃
+      logout();
     } catch (e: any) {
       alert(e?.body?.message || e.message || "관리자 위임 실패");
     } finally {
@@ -144,14 +147,13 @@ export default function Members() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
-            {/* 👇 여기 문구 추가 */}
           </div>
           <div>
             <button
               type="submit"
-              disabled={creating || !loginId || !password || list.length >= 49}
+              disabled={creating || !loginId || !password || list.length >= MAX_MEMBERS}
               className={`w-full px-4 py-2 rounded-xl ${
-                (!creating && loginId && password && list.length < 49)
+                (!creating && loginId && password && list.length < MAX_MEMBERS)
                   ? "bg-slate-900 text-white"
                   : "bg-gray-200 text-gray-500 cursor-not-allowed"
               }`}
@@ -160,9 +162,9 @@ export default function Members() {
             </button>
           </div>
         </form>
-            <p className="mt-1 text-xs text-gray-500">
-              혈맹원은 최대 49명까지 입력할 수 있습니다. (현재 {list.length}명)
-            </p>
+        <p className="mt-1 text-xs text-gray-500">
+          혈맹원은 최대 {MAX_MEMBERS}명까지 입력할 수 있습니다. (현재 {list.length}명)
+        </p>
       </Card>
 
       <Card>
@@ -187,7 +189,7 @@ export default function Members() {
               </thead>
               <tbody>
                 {list.map((m) => {
-                  const self = user?.loginId === m.loginId; // 항상 boolean
+                  const self = user?.loginId === m.loginId;
                   const isTargetAdmin = m.role === "ADMIN";
                   const isTargetLeader = m.role === "LEADER";
                   const isTargetUser = m.role === "USER";
@@ -202,10 +204,9 @@ export default function Members() {
                       </td>
                       <td className="py-2 pr-4">{fmtDate(m.createdAt)}</td>
                       <td className="py-2 text-right space-x-2">
-                        {/* 간부 지정/해제: ⚠️ 관리자만 가능. 자기 자신 금지 */}
                         {iAmAdmin && !self && (
                           <button
-                            disabled={changingId === m.id || isTargetAdmin} // 관리자 계정에는 적용 불가
+                            disabled={changingId === m.id || isTargetAdmin}
                             onClick={() => toggleLeader(m)}
                             className="px-3 py-1.5 rounded-lg border hover:bg-slate-50 disabled:opacity-50"
                             title={self ? "자기 자신은 변경할 수 없습니다." : undefined}
@@ -214,7 +215,6 @@ export default function Members() {
                           </button>
                         )}
 
-                        {/* 관리자 위임: ⚠️ 관리자만 / 자기 자신 금지 / 대상은 USER 또는 LEADER */}
                         {iAmAdmin && !self && isTargetLeader && (
                           <button
                             disabled={assigningId === m.id}
@@ -225,15 +225,11 @@ export default function Members() {
                           </button>
                         )}
 
-                        {/* 삭제:
-                            - 관리자: 자기 자신만 금지(그 외 모두 가능)
-                            - 간부: USER만 삭제 가능, 간부/관리자 삭제 불가, 자기 자신 금지
-                        */}
                         <button
                           disabled={
                             deletingId === m.id ||
                             self ||
-                            (iAmLeader && !isTargetUser) // 간부는 USER만 삭제 가능
+                            (iAmLeader && !isTargetUser)
                           }
                           onClick={() => remove(m)}
                           className="px-3 py-1.5 rounded-lg border hover:bg-slate-50 disabled:opacity-50"
