@@ -87,7 +87,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = () => {
     cleanupTokens();
     setUser(null);
-    if (typeof window !== "undefined") window.location.href = "/";
+    if (typeof window !== "undefined") {
+      window.location.href = "/clanManager/"; // ← 원하는 경로
+    }
   };
 
   const value = useMemo(

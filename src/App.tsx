@@ -103,12 +103,6 @@ export default function App() {
                   {` (${roleLabel(role)})`}
                 </span>
                 <button
-                  onClick={() => guardAndNav("dashboard")}
-                  className="px-3 py-1.5 rounded-xl hover:bg-slate-100"
-                >
-                  대시보드
-                </button>
-                <button
                   onClick={() => {
                     logout();
                     // 필요 시 전체 새로고침:
