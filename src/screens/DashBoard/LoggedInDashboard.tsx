@@ -10,7 +10,7 @@ import { formatNow } from "../../utils/util";
 const MS = 1000;
 const MIN = 60 * MS;
 // 음성 알림 시점들 (5분, 3분, 1분)
-const ALERT_THRESHOLDS = [5 * MIN, 3 * MIN, 1 * MIN] as const;
+const ALERT_THRESHOLDS = [5 * MIN, 1 * MIN] as const;
 // 카드 하이라이트 기준(5분 이내)
 const HIGHLIGHT_MS = 5 * MIN;
 
@@ -42,6 +42,10 @@ export default function LoggedInDashboard() {
   const [cutOpen, setCutOpen] = useState(false);
   const [selectedBoss, setSelectedBoss] = useState<BossDto | null>(null);
 
+  // 간편 컷 입력
+  const [quickCutText, setQuickCutText] = useState("");
+  const [quickSaving, setQuickSaving] = useState(false);
+
   // 주기적으로 재정렬(예상 젠 시간이 흘러가면서 순서가 바뀌어야 함)
   const [tick, setTick] = useState(0);
   useEffect(() => {
@@ -71,7 +75,7 @@ export default function LoggedInDashboard() {
   }
 
   // 정렬 + (잊보) 예측 젠 시각 map 계산
-  const { trackedSorted, forgottenSorted, forgottenNextMap } = useMemo(() => {
+  const { trackedSorted, forgottenSorted, forgottenNextMap, allBosses } = useMemo(() => {
     const now = Date.now();
 
     const safeTime = (iso?: string | null) =>
@@ -102,7 +106,9 @@ export default function LoggedInDashboard() {
 
     const forgottenSorted = pred.sort((x, y) => x.predicted - y.predicted).map(({ b }) => b);
 
-    return { trackedSorted, forgottenSorted, forgottenNextMap };
+    const allBosses = [...trackedRaw, ...forgottenRaw];
+
+    return { trackedSorted, forgottenSorted, forgottenNextMap, allBosses };
   }, [trackedRaw, forgottenRaw, tick]);
 
   // 검색(스크립트로만)
@@ -134,8 +140,7 @@ export default function LoggedInDashboard() {
     return next - now;
   };
 
-  // ── 알림: 5/3/1분 이내일 때 음성(또는 비프) — 각 시점 1회만 ─────────────
-  // Map<bossId, Set<thresholdMs>>
+  // ── 알림: 5/3/1분 이내일 때 음성(또는 비프) — 각 시점 1회만 ─────
   const [alertedMap, setAlertedMap] = useState<Map<string, Set<number>>>(new Map());
 
   useEffect(() => {
@@ -155,7 +160,7 @@ export default function LoggedInDashboard() {
             if (!already) {
               toSpeak.push({ id: b.id, name: b.name, threshold: th });
             }
-            break; // 더 작은 임계치들은 나중에 다시 체크됨
+            break; // 더 작은 임계치들은 다음 틱에서 별도 체크
           }
         }
       }
@@ -259,6 +264,81 @@ export default function LoggedInDashboard() {
     setCutOpen(true);
   };
 
+  // ── 간편 보스 컷 ─────────────────────────────────────────
+  // 예시 입력: "서드 2200", "서드 22:00", "악마왕 930"
+  function parseQuickCut(text: string, list: BossDto[]) {
+    const s = text.trim();
+    if (!s) return null;
+
+    const parts = s.split(/\s+/);
+    if (parts.length < 2) return null;
+
+    const timeRaw = parts[parts.length - 1];
+    const nameQuery = parts.slice(0, -1).join(" ").toLowerCase();
+
+    // 시간 파싱: "2200", "22:00", "930" → {h,m}
+    let hh = NaN, mm = NaN;
+    if (/^\d{3,4}$/.test(timeRaw)) {
+      const str = timeRaw.padStart(4, "0");
+      hh = parseInt(str.slice(0, 2), 10);
+      mm = parseInt(str.slice(2, 4), 10);
+    } else if (/^\d{1,2}:\d{2}$/.test(timeRaw)) {
+      const [h, m] = timeRaw.split(":");
+      hh = parseInt(h, 10);
+      mm = parseInt(m, 10);
+    } else {
+      return null;
+    }
+    if (!(hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59)) return null;
+
+    // 보스 매칭(이름/위치 포함)
+    const hay = (b: BossDto) => `${b.name} ${b.location ?? ""}`.toLowerCase();
+    const candidates = list.filter((b) => hay(b).includes(nameQuery));
+    if (candidates.length === 0) return { boss: null, iso: null }; // 입력 형식은 OK, 보스 없음
+
+    // 첫 후보 선택(필요하면 더 정교한 스코어링 가능)
+    const boss = candidates[0];
+
+    // 오늘 날짜 + 지정 시각(로컬) → ISO
+    const d = new Date();
+    d.setSeconds(0, 0);
+    d.setHours(hh, mm, 0, 0);
+    const iso = d.toISOString();
+
+    return { boss, iso };
+  }
+
+  async function submitQuickCut() {
+    if (quickSaving) return;
+    const parsed = parseQuickCut(quickCutText, allBosses);
+    if (!parsed) {
+      alert("형식: 보스이름 시각\n예) 서드 2200 / 서드 22:00 / 악마왕 930");
+      return;
+    }
+    if (!parsed.boss) {
+      alert("입력한 보스명을 찾을 수 없습니다. (현재 목록에서 검색됩니다)");
+      return;
+    }
+
+    setQuickSaving(true);
+    try {
+      // 아이템 없이 컷만 기록. mode는 필수라 'TREASURY'로 보냄(의미상 영향 없음)
+      await postJSON(`/v1/dashboard/bosses/${parsed.boss.id}/cut`, {
+        cutAtIso: parsed.iso,
+        mode: "TREASURY",
+        items: [],
+        participants: [],
+      });
+      setQuickCutText("");
+      await loadBosses();
+      alert(`[간편컷] ${parsed.boss.name} · ${new Date(parsed.iso!).toLocaleTimeString("ko-KR", { hour12: false })} 저장됨`);
+    } catch (e: any) {
+      alert(e?.message ?? "간편컷 저장 실패");
+    } finally {
+      setQuickSaving(false);
+    }
+  }
+
   // 강조 UI 클래스(5분 이내)
   const highlightWrap =
     "rounded-xl ring-2 ring-rose-300 bg-rose-50/60 transition-colors";
@@ -272,8 +352,9 @@ export default function LoggedInDashboard() {
 
   return (
     <div className="grid grid-rows-[auto_1fr] gap-3 h-[calc(100vh-56px)]">
-      {/* 검색 바 + 음성 알림 토글 */}
-      <div className="flex items-center gap-3">
+      {/* 검색 바 + 음성 알림 토글 + 간편 보스 컷 */}
+      <div className="flex items-center gap-3 flex-wrap">
+        {/* 검색 */}
         <div className="relative w-full max-w-xl">
           <input
             className="w-full border rounded-xl px-4 py-2 pr-10"
@@ -294,6 +375,7 @@ export default function LoggedInDashboard() {
           )}
         </div>
 
+        {/* 음성 알림 토글 */}
         <label className="flex items-center gap-2 text-sm select-none">
           <input
             type="checkbox"
@@ -302,6 +384,31 @@ export default function LoggedInDashboard() {
           />
           음성 알림
         </label>
+
+        {/* 간편 보스 컷 */}
+        <div className="flex items-center gap-2">
+          <input
+            className="border rounded-xl px-3 py-2 w-[260px]"
+            placeholder="간편 보스 컷: 서드 2200"
+            value={quickCutText}
+            onChange={(e) => setQuickCutText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                submitQuickCut();
+              }
+            }}
+          />
+          <button
+            type="button"
+            className={`px-3 py-2 rounded-xl text-white ${quickSaving ? "bg-gray-300" : "bg-slate-900 hover:opacity-90"}`}
+            onClick={submitQuickCut}
+            disabled={quickSaving}
+            title="입력 예: 서드 2200 / 서드 22:00 / 악마왕 930"
+          >
+            {quickSaving ? "저장 중…" : "간편컷 저장"}
+          </button>
+        </div>
       </div>
 
       {/* 본문 그리드 */}
