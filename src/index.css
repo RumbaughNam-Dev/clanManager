@@ -5,3 +5,8 @@
 :root { color-scheme: light; }
 html, body, #root { height: 100%; }
 body { @apply bg-slate-50 text-slate-900; }
+
+html, body {
+  overflow: hidden;           /* 🔒 바깥쪽 스크롤 제거 */
+  overscroll-behavior: none;  /* (선택) 바운스/당김 방지 */
+}
