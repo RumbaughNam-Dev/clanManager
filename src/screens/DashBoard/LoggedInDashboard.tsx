@@ -1,35 +1,31 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { postJSON } from "@/lib/http";
 import BossCard from "./BossCard";
-import ForgottenCard from "./ForgottenCard";
-import CutModal from "./CutModal";
 import type { BossDto, ListBossesResp } from "../../types";
-import { formatNow } from "../../utils/util";
 
 const MS = 1000;
 const MIN = 60 * MS;
 
-// 음성 알림 시점들 (5분, 1분)
+// 알림 시점들
 const ALERT_THRESHOLDS = [5 * MIN, 1 * MIN] as const;
-// 임박 하이라이트 기준(5분 이내)
+// 임박 하이라이트(5분 이내)
 const HIGHLIGHT_MS = 5 * MIN;
-// 지나간 보스, 위에 유지하는 유예(3분) — 파란색으로 고정
-const OVERDUE_GRACE_MS = 3 * MIN;
-// “미기록 경고” 음성 알림 시점(지나간 3분)
+// ⬇️ 지남 유예: 5분
+const OVERDUE_GRACE_MS = 5 * MIN;
+// ⬇️ 지남 경고(음성): 지남 3분째
 const MISSED_WARN_MS = 3 * MIN;
 
-// ---- 로컬 스토리지 key 헬퍼 ----
-const LS_DAZE = "bossDazeCounts"; // { [bossId]: number }
-const LS_MISS = "bossMissCounts"; // { [bossId]: number }
+// 로컬 스토리지 키
+const LS_DAZE = "bossDazeCounts";
+const LS_MISS = "bossMissCounts";
 
 type CountMap = Record<string, number>;
-
 function readCounts(key: string): CountMap {
   try {
     const raw = localStorage.getItem(key);
     if (!raw) return {};
     const obj = JSON.parse(raw);
-    if (obj && typeof obj === "object") return obj;
+    if (obj && typeof obj === "object") return obj as CountMap;
   } catch {}
   return {};
 }
@@ -60,32 +56,59 @@ export default function LoggedInDashboard() {
     } catch {}
   }, [voiceEnabled]);
 
-  const [cutOpen, setCutOpen] = useState(false);
-  const [selectedBoss, setSelectedBoss] = useState<BossDto | null>(null);
-
-  // 간편 컷 입력
   const [quickCutText, setQuickCutText] = useState("");
   const [quickSaving, setQuickSaving] = useState(false);
 
-  // 멍/미입력 횟수 (로컬 관리)
   const [dazeCounts, setDazeCounts] = useState<CountMap>(() => readCounts(LS_DAZE));
   const [missCounts, setMissCounts] = useState<CountMap>(() => readCounts(LS_MISS));
 
-  // 주기 틱(30초)
+  // 30초 틱
   const [tick, setTick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setTick((x) => x + 1), 30_000);
     return () => clearInterval(t);
   }, []);
 
-  // 직전 nextSpawnAt 보관(서버가 바로 null로 내려도 계산용으로 유지)
+  // ---- Refs ----
+  // 서버 nextSpawnAt 사라져도 유지할 마지막 next
   const lastNextSpawnRef = useRef<Map<string, number>>(new Map());
-  // “지나감 유지 마감 시각(nextMs + 3분)” 보관 — 반드시 클라에서 강제관리
+  // 지남 유예 마감 시각 (nextMs + 5분)
   const overdueUntilRef = useRef<Map<string, number>>(new Map());
-  // “미기록 경고(3분)” 발화 여부
+  // 지남 경고(3분) 1회 발화 여부
   const missedWarnSetRef = useRef<Set<string>>(new Set());
+  // “이번 젠” 키(= 지남 시작 ms)를 기록하여 중복 miss 방지
+  const lastMissMarkedRef = useRef<Map<string, number>>(new Map());
+  // 보스명 → 최근 컷 타임라인 id 캐시(멍 API용)
+  const timelineIdCacheRef = useRef<Map<string, string>>(new Map());
 
-  // 초기 로드 + 1분마다 갱신
+  // 기록이 한 번이라도 있었는가? (컷 있거나 멍 찍은 적 있으면 true)
+  const hasAnyRecord = (b: BossDto) => {
+    const daze = dazeCounts[b.id] ?? 0;
+    return !!b.lastCutAt || daze > 0;
+  };
+
+  // 보스명 → 최근 컷 타임라인 ID
+  type ListTimelinesLite = { ok: true; items: Array<{ id: string | number; bossName: string; cutAt: string }> };
+  async function getTimelineIdForBossName(bossName: string): Promise<string | null> {
+    const key = bossName?.trim();
+    if (!key) return null;
+    const cached = timelineIdCacheRef.current.get(key);
+    if (cached) return cached;
+
+    try {
+      const resp = await postJSON<ListTimelinesLite>("/v1/boss-timelines");
+      const found = (resp.items || []).find((it) => it.bossName === key);
+      if (!found) return null;
+      const id = String(found.id);
+      timelineIdCacheRef.current.set(key, id);
+      return id;
+    } catch (e) {
+      console.error("타임라인 목록 조회 실패:", e);
+      return null;
+    }
+  }
+
+  // 초기 로드
   useEffect(() => {
     loadBosses();
     const t = setInterval(() => loadBosses(), 60_000);
@@ -99,15 +122,25 @@ export default function LoggedInDashboard() {
       setTrackedRaw(data.tracked ?? []);
       setForgottenRaw(data.forgotten ?? []);
 
-      // latest nextSpawnAt 저장(없으면 이전값 유지)
-      const map = new Map(lastNextSpawnRef.current);
+      // ⬇️ 서버 next 갱신 전, 이전 next가 이미 지났다면 유예 고정
+      const now = Date.now();
+      const prevMap = lastNextSpawnRef.current;
+      const nextMap = new Map(prevMap);
+
       for (const b of data.tracked ?? []) {
-        if (b.nextSpawnAt) {
-          const ms = new Date(b.nextSpawnAt).getTime();
-          if (Number.isFinite(ms)) map.set(b.id, ms);
+        const newMs = b.nextSpawnAt ? new Date(b.nextSpawnAt).getTime() : NaN;
+        const prevMs = prevMap.get(b.id);
+        // 이전 next가 있고 이미 지났다면(= 지남 이벤트), 유예(5분) 설정 고정
+        if (Number.isFinite(prevMs) && now >= prevMs!) {
+          const target = prevMs! + OVERDUE_GRACE_MS;
+          const existing = overdueUntilRef.current.get(b.id);
+          if (!existing || existing < target) {
+            overdueUntilRef.current.set(b.id, target);
+          }
         }
+        if (Number.isFinite(newMs)) nextMap.set(b.id, newMs);
       }
-      lastNextSpawnRef.current = map;
+      lastNextSpawnRef.current = nextMap;
     } catch {
       setTrackedRaw([]);
       setForgottenRaw([]);
@@ -116,221 +149,211 @@ export default function LoggedInDashboard() {
     }
   }
 
-  // ===== 공통 계산 유틸 =====
-  const getNextMsTracked = (b: BossDto) => {
-    if (b.nextSpawnAt) {
-      const t = new Date(b.nextSpawnAt).getTime();
-      if (Number.isFinite(t)) return t;
-    }
-    const m = lastNextSpawnRef.current.get(b.id);
-    return m ?? Number.POSITIVE_INFINITY;
-  };
-
-  // 정렬 + (잊보) 예측 젠 시각 map 계산
-  const { trackedSorted, forgottenSorted, forgottenNextMap, allBosses } = useMemo(() => {
+  // next 계산
+  const { trackedIdSet, forgottenNextMap, allBossesSortedByNext } = useMemo(() => {
     const now = Date.now();
+    const trackedIdSet = new Set(trackedRaw.map((b) => b.id));
 
-    // 잊보 예측
     const forgottenNextMap = new Map<string, number>();
-    const pred = forgottenRaw.map((b) => {
+    for (const b of forgottenRaw) {
       if (!b.lastCutAt || !b.respawn || b.respawn <= 0) {
         forgottenNextMap.set(b.id, Number.POSITIVE_INFINITY);
-        return { b, predicted: Number.POSITIVE_INFINITY };
+        continue;
       }
       const lastMs = new Date(b.lastCutAt).getTime();
-      if (isNaN(lastMs)) {
+      if (!Number.isFinite(lastMs)) {
         forgottenNextMap.set(b.id, Number.POSITIVE_INFINITY);
-        return { b, predicted: Number.POSITIVE_INFINITY };
+        continue;
       }
-      const step = Math.max(1, Math.round(b.respawn * 60 * 1000)); // 분→ms
+      const step = Math.max(1, Math.round(b.respawn * 60 * 1000));
       const diff = now - lastMs;
       const k = Math.max(1, Math.ceil(diff / step));
       const nextMs = lastMs + k * step;
       forgottenNextMap.set(b.id, nextMs);
-      return { b, predicted: nextMs };
-    });
-    const forgottenSorted = pred.sort((x, y) => x.predicted - y.predicted).map(({ b }) => b);
+    }
 
-    // 진행중 보스 정렬 — “지나갔고 3분 유예가 남아있으면” 최상단 유지(키=0)
-    const trackedSorted = [...trackedRaw].sort((a, b) => {
-      const now = Date.now();
+    const all = [...trackedRaw, ...forgottenRaw];
+    const seen = new Set<string>();
+    const dedupAll = all.filter((b) => (seen.has(b.id) ? false : (seen.add(b.id), true)));
 
-      const nextA = getNextMsTracked(a);
-      const nextB = getNextMsTracked(b);
+    const getNext = (b: BossDto) => {
+      if (trackedIdSet.has(b.id)) {
+        if (b.nextSpawnAt) {
+          const t = new Date(b.nextSpawnAt).getTime();
+          if (Number.isFinite(t)) return t;
+        }
+        return lastNextSpawnRef.current.get(b.id) ?? Number.POSITIVE_INFINITY;
+      }
+      return forgottenNextMap.get(b.id) ?? Number.POSITIVE_INFINITY;
+    };
 
-      const overdueUntilA = overdueUntilRef.current.get(a.id);
-      const overdueUntilB = overdueUntilRef.current.get(b.id);
-
-      const isAOverKeep = overdueUntilA != null && now < overdueUntilA; // 3분 내
-      const isBOverKeep = overdueUntilB != null && now < overdueUntilB;
-
-      // 1순위: 3분 유예중이면 항상 상단(키=0)
-      const keyA = isAOverKeep
-        ? 0
-        : Number.isFinite(nextA)
-          ? Math.max(nextA - now, 0) // 임박/미도래
-          : Number.POSITIVE_INFINITY;
-
-      const keyB = isBOverKeep
-        ? 0
-        : Number.isFinite(nextB)
-          ? Math.max(nextB - now, 0)
-          : Number.POSITIVE_INFINITY;
-
-      return keyA - keyB;
-    });
-
-    const allBosses = [...trackedRaw, ...forgottenRaw];
-    return { trackedSorted, forgottenSorted, forgottenNextMap, allBosses };
+    const allBossesSortedByNext = [...dedupAll].sort((a, b) => getNext(a) - getNext(b));
+    return { trackedIdSet, forgottenNextMap, allBossesSortedByNext };
   }, [trackedRaw, forgottenRaw, tick]);
 
-  // 검색
-  const { trackedFiltered, forgottenFiltered } = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return { trackedFiltered: trackedSorted, forgottenFiltered: forgottenSorted };
+  const trackedIdSetRef = useRef<Set<string>>(new Set());
+  const forgottenNextMapRef = useRef<Map<string, number>>(new Map());
+  useEffect(() => {
+    trackedIdSetRef.current = new Set(trackedIdSet);
+    forgottenNextMapRef.current = new Map(forgottenNextMap);
+  }, [trackedIdSet, forgottenNextMap]);
 
+  const getNextMsGeneric = (b: BossDto) => {
+    if (trackedIdSetRef.current.has(b.id)) {
+      if (b.nextSpawnAt) {
+        const t = new Date(b.nextSpawnAt).getTime();
+        if (Number.isFinite(t)) return t;
+      }
+      return lastNextSpawnRef.current.get(b.id) ?? Number.POSITIVE_INFINITY;
+    }
+    return forgottenNextMapRef.current.get(b.id) ?? Number.POSITIVE_INFINITY;
+  };
+
+  // 검색
+  const filteredAll = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return allBossesSortedByNext;
     const tokens = q.split(/\s+/g);
     const match = (b: BossDto) => {
       const hay = `${b.name} ${b.location ?? ""}`.toLowerCase();
       return tokens.every((t) => hay.includes(t));
     };
+    return allBossesSortedByNext.filter(match);
+  }, [query, allBossesSortedByNext]);
 
-    return {
-      trackedFiltered: trackedSorted.filter(match),
-      forgottenFiltered: forgottenSorted.filter(match),
-    };
-  }, [query, trackedSorted, forgottenSorted]);
-
-  // ===== 남은시간/지남시간 계산(+ 유예/경고 상태 갱신) =====
-  const remainingMsForTrackedWithOverdue = (b: BossDto) => {
+  /**
+   * 남은/지남 계산 + 유예 마킹(설정만)
+   * - 스폰 지남(diff<=0) 시, **유예 마감(overdueUntil = nextMs + 5분)**만 설정/유지
+   * - miss +1은 여기서 하지 않음(렌더 중 setState 방지)
+   */
+  const remainingMsFor = (b: BossDto) => {
     const now = Date.now();
-    const nextMs = getNextMsTracked(b);
+    const nextMs = getNextMsGeneric(b);
     const overdueUntil = overdueUntilRef.current.get(b.id);
 
-    // ✅ 유예 중이면 nextSpawnAt이 미래로 바뀌어도 항상 "지남"으로 취급
+    // 유예 중이면 항상 "지남" 취급(파란색 유지)
     if (overdueUntil && now < overdueUntil) {
       const overdueStart = overdueUntil - OVERDUE_GRACE_MS;
-      return -(now - overdueStart); // 계속 음수 유지(파란색 유지 & 3분 경고 동작)
+      return -(now - overdueStart);
     }
-
-    if (!Number.isFinite(nextMs)) {
-      return Number.POSITIVE_INFINITY;
-    }
+    if (!Number.isFinite(nextMs)) return Number.POSITIVE_INFINITY;
 
     const diff = nextMs - now;
 
-    // 처음 지났을 때 유예 등록
     if (diff <= 0) {
+      // 유예 목표치 설정/업데이트
       const target = nextMs + OVERDUE_GRACE_MS;
       const existing = overdueUntilRef.current.get(b.id);
       if (!existing || existing < target) overdueUntilRef.current.set(b.id, target);
-    } else {
-      // 아직 안 지났으면 혹시 남아있던 유예는 정리
-      if (overdueUntilRef.current.has(b.id) && now >= (overdueUntilRef.current.get(b.id) || 0)) {
-        overdueUntilRef.current.delete(b.id);
-        missedWarnSetRef.current.delete(b.id);
-      }
-    }
 
+      // 반환값은 "지남 경과 시간"(음수). 유예 중에는 음수로 유지
+      const overdueStart = (overdueUntilRef.current.get(b.id) ?? target) - OVERDUE_GRACE_MS;
+      return -(now - overdueStart);
+    }
     return diff;
   };
 
-  const remainingMsFor = (b: BossDto, type: "tracked" | "forgotten") => {
-    if (type === "tracked") return remainingMsForTrackedWithOverdue(b);
+  /**
+   * ⬇️ 유예 종료 처리 (5분 경과 시점에 miss +1 하고 중앙으로 이동)
+   * 렌더 중 setState를 하지 않기 위해, 30초 틱으로 한 번에 처리
+   */
+  useEffect(() => {
     const now = Date.now();
-    const next = forgottenNextMap.get(b.id) ?? Number.POSITIVE_INFINITY;
-    return next - now;
-  };
+    const toFinalize: string[] = [];
+    overdueUntilRef.current.forEach((until, id) => {
+      if (now >= until) toFinalize.push(id);
+    });
+    if (toFinalize.length === 0) return;
 
-  // ── 음성 알림(5분/1분) + “미기록 경고(지나간 3분)” ──────────────────────
-  const [alertedMap, setAlertedMap] = useState<Map<string, Set<number>>>(new Map()); // 5분/1분
+    setMissCounts((prev) => {
+      const next = { ...prev };
+      for (const id of toFinalize) {
+        next[id] = (next[id] ?? 0) + 1;
+      }
+      writeCounts(LS_MISS, next);
+      return next;
+    });
 
+    // 중복 방지 & 유예 해제
+    for (const id of toFinalize) {
+      const until = overdueUntilRef.current.get(id) ?? now;
+      const startKey = until - OVERDUE_GRACE_MS;
+      lastMissMarkedRef.current.set(id, startKey);
+      overdueUntilRef.current.delete(id);
+      missedWarnSetRef.current.delete(id);
+    }
+  }, [tick]);
+
+  // 음성 알림 & 지남 3분 경고
+  const [alertedMap, setAlertedMap] = useState<Map<string, Set<number>>>(new Map());
   useEffect(() => {
     if (!voiceEnabled) return;
 
     const toSpeak: Array<{ id: string; name: string; threshold: number }> = [];
     const toWarnMissed: Array<{ id: string; name: string }> = [];
 
-    // 5분/1분 남음 알림 (tracked+forgotten)
-    const checkAheadList = (list: BossDto[], type: "tracked" | "forgotten") => {
-      for (const b of list) {
-        const r = remainingMsFor(b, type);
-        if (!(r > 0)) continue;
-
-        const prev = alertedMap.get(b.id);
-        for (const th of ALERT_THRESHOLDS) {
-          if (r <= th && !(prev?.has(th))) {
-            toSpeak.push({ id: b.id, name: b.name, threshold: th });
-          }
+    // 5/1분 전 알림
+    for (const b of filteredAll) {
+      const r = remainingMsFor(b);
+      if (!(r > 0)) continue;
+      const prev = alertedMap.get(b.id);
+      for (const th of ALERT_THRESHOLDS) {
+        if (r <= th && !(prev?.has(th))) {
+          toSpeak.push({ id: b.id, name: b.name, threshold: th });
         }
-      }
-    };
-
-    // 지나간 3분 경고(“보스 시간이 기록되지 않았습니다.”) — tracked만
-    const checkMissed = (list: BossDto[]) => {
-      for (const b of list) {
-        const r = remainingMsFor(b, "tracked"); // 음수면 지남
-        // r ≈ -(지나간 ms). 3분 부근에서 단 한 번만
-        if (r <= -MISSED_WARN_MS && r > -(MISSED_WARN_MS + 30 * MS)) {
-          if (!missedWarnSetRef.current.has(b.id)) {
-            toWarnMissed.push({ id: b.id, name: b.name });
-          }
-        }
-      }
-    };
-
-    checkAheadList(trackedFiltered, "tracked");
-    checkAheadList(forgottenFiltered, "forgotten");
-    checkMissed(trackedFiltered);
-
-    if (toSpeak.length > 0 || toWarnMissed.length > 0) {
-      (async () => {
-        for (const x of toSpeak) {
-          const minStr = x.threshold === 5 * MIN ? "5분" : "1분";
-          try {
-            await speakKorean(`${x.name} 보스 젠 ${minStr} 전입니다.`);
-          } catch {
-            await playBeep(250);
-          }
-          await delay(120);
-        }
-        for (const x of toWarnMissed) {
-          try {
-            await speakKorean(`${x.name} 보스 시간이 기록되지 않았습니다.`);
-          } catch {
-            await playBeep(300);
-          }
-          await delay(120);
-          missedWarnSetRef.current.add(x.id);
-
-          // ✅ 미입력 횟수 +1 (로컬)
-          setMissCounts((prev) => {
-            const next = { ...prev, [x.id]: (prev[x.id] ?? 0) + 1 };
-            writeCounts(LS_MISS, next);
-            return next;
-          });
-        }
-      })().catch(() => {});
-
-      if (toSpeak.length > 0) {
-        setAlertedMap((prev) => {
-          const next = new Map(prev);
-          for (const x of toSpeak) {
-            const set = new Set(next.get(x.id) ?? []);
-            set.add(x.threshold);
-            next.set(x.id, set);
-          }
-          return next;
-        });
       }
     }
+
+    // 지남 3분 경고(유예 중)
+    for (const b of filteredAll) {
+      const r = remainingMsFor(b); // 음수면 지남
+      if (r <= -MISSED_WARN_MS && r > -(MISSED_WARN_MS + 30 * MS)) {
+        if (!missedWarnSetRef.current.has(b.id)) {
+          toWarnMissed.push({ id: b.id, name: b.name });
+        }
+      }
+    }
+
+    if (toSpeak.length === 0 && toWarnMissed.length === 0) return;
+
+    (async () => {
+      for (const x of toSpeak) {
+        const minStr = x.threshold === 5 * MIN ? "5분" : "1분";
+        try {
+          await speakKorean(`${x.name} 보스 젠 ${minStr} 전입니다.`);
+        } catch {
+          await playBeep(250);
+        }
+        await delay(120);
+      }
+      for (const x of toWarnMissed) {
+        try {
+          await speakKorean(`컷 이나 멍 처리 하지 않으면 미입력 보스로 이동합니다.`);
+        } catch {
+          await playBeep(300);
+        }
+        await delay(120);
+        missedWarnSetRef.current.add(x.id);
+      }
+    })().catch(() => {});
+
+    if (toSpeak.length > 0) {
+      setAlertedMap((prev) => {
+        const next = new Map(prev);
+        for (const x of toSpeak) {
+          const set = new Set(next.get(x.id) ?? []);
+          set.add(x.threshold);
+          next.set(x.id, set);
+        }
+        return next;
+      });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trackedFiltered, forgottenFiltered, tick, voiceEnabled]);
+  }, [filteredAll, tick, voiceEnabled]);
 
   function delay(ms: number) {
     return new Promise((res) => setTimeout(res, ms));
   }
-
   function playBeep(durationMs = 300) {
     const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext;
     if (!AudioCtx) return Promise.resolve();
@@ -350,7 +373,6 @@ export default function LoggedInDashboard() {
       }, durationMs);
     });
   }
-
   function speakKorean(text: string): Promise<void> {
     return new Promise((resolve, reject) => {
       const ss: SpeechSynthesis | undefined = (window as any).speechSynthesis;
@@ -385,13 +407,7 @@ export default function LoggedInDashboard() {
     });
   }
 
-  const handleCut = (b: BossDto) => {
-    setSelectedBoss(b);
-    setCutOpen(true);
-  };
-
-  // ── 간편 보스 컷 ─────────────────────────────────────────
-  // 형식: "1550 서드", "15:50 서드", "930 악마왕"
+  // 간편 컷 입력 파싱
   function parseQuickCut(text: string, list: BossDto[]) {
     const s = text.trim();
     if (!s) return null;
@@ -416,10 +432,8 @@ export default function LoggedInDashboard() {
     if (!(hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59)) return null;
 
     const hay = (b: BossDto) => `${b.name} ${b.location ?? ""}`.toLowerCase();
-    const candidates = list.filter((b) => hay(b).includes(nameQuery));
-    if (candidates.length === 0) return { boss: null, iso: null };
-
-    const boss = candidates[0];
+    const boss = list.find((b) => hay(b).includes(nameQuery));
+    if (!boss) return { boss: null, iso: null };
 
     const d = new Date();
     d.setSeconds(0, 0);
@@ -429,9 +443,10 @@ export default function LoggedInDashboard() {
     return { boss, iso };
   }
 
+  // 간편 컷 저장
   async function submitQuickCut() {
     if (quickSaving) return;
-    const parsed = parseQuickCut(quickCutText, allBosses);
+    const parsed = parseQuickCut(quickCutText, filteredAll);
     if (!parsed) {
       alert("형식: 시각 보스이름\n예) 2200 서드 / 22:00 서드 / 930 악마왕");
       return;
@@ -449,21 +464,24 @@ export default function LoggedInDashboard() {
         items: [],
         participants: [],
       });
-      setQuickCutText("");
-      // 컷/멍 처리되면 해당 보스의 미입력 횟수는 0으로 리셋
+
+      // 컷하면 miss/daze 리셋 + 유예 해제
       setMissCounts((prev) => {
         const next = { ...prev, [parsed.boss!.id]: 0 };
         writeCounts(LS_MISS, next);
         return next;
       });
-      // 유예/경고 플래그 클리어
+      setDazeCounts((prev) => {
+        const next = { ...prev, [parsed.boss!.id]: 0 };
+        writeCounts(LS_DAZE, next);
+        return next;
+      });
       overdueUntilRef.current.delete(parsed.boss.id);
       missedWarnSetRef.current.delete(parsed.boss.id);
+      lastMissMarkedRef.current.delete(parsed.boss.id);
 
+      setQuickCutText("");
       await loadBosses();
-      alert(
-        `[간편컷] ${parsed.boss.name} · ${new Date(parsed.iso!).toLocaleTimeString("ko-KR", { hour12: false })} 저장됨`
-      );
     } catch (e: any) {
       alert(e?.message ?? "간편컷 저장 실패");
     } finally {
@@ -471,7 +489,7 @@ export default function LoggedInDashboard() {
     }
   }
 
-  // 버튼: 즉시 컷(지금 시각)
+  // 즉시 컷
   async function instantCut(b: BossDto) {
     try {
       await postJSON(`/v1/dashboard/bosses/${b.id}/cut`, {
@@ -480,28 +498,38 @@ export default function LoggedInDashboard() {
         items: [],
         participants: [],
       });
-      // 미입력 리셋
       setMissCounts((prev) => {
         const next = { ...prev, [b.id]: 0 };
         writeCounts(LS_MISS, next);
         return next;
       });
+      setDazeCounts((prev) => {
+        const next = { ...prev, [b.id]: 0 };
+        writeCounts(LS_DAZE, next);
+        return next;
+      });
       overdueUntilRef.current.delete(b.id);
       missedWarnSetRef.current.delete(b.id);
+      lastMissMarkedRef.current.delete(b.id);
       await loadBosses();
     } catch (e: any) {
       alert(e?.message ?? "즉시 컷 실패");
     }
   }
 
-  // 버튼: 멍 +1
-  function addDaze(b: BossDto) {
+  // 멍(+1)
+  async function addDaze(b: BossDto) {
+    console.log("[UI] 멍 클릭:", b.id, b.name);
+
+    const prevDaze = dazeCounts[b.id] ?? 0;
+    const prevMiss = missCounts[b.id] ?? 0;
+
+    // 낙관적 반영(이번 젠은 '처리됨'으로 간주 → miss 0)
     setDazeCounts((prev) => {
-      const next = { ...prev, [b.id]: (prev[b.id] ?? 0) + 1 };
+      const next = { ...prev, [b.id]: prevDaze + 1 };
       writeCounts(LS_DAZE, next);
       return next;
     });
-    // 멍 찍었으면 미입력은 0으로(“바로 직전 타임에 멍이나 컷이나 했으면 왼쪽 섹션”)
     setMissCounts((prev) => {
       const next = { ...prev, [b.id]: 0 };
       writeCounts(LS_MISS, next);
@@ -509,12 +537,52 @@ export default function LoggedInDashboard() {
     });
     overdueUntilRef.current.delete(b.id);
     missedWarnSetRef.current.delete(b.id);
+    lastMissMarkedRef.current.delete(b.id);
+
+    // 서버 기록: 보스명 → 최근 컷 타임라인 → /v1/boss-timelines/:id/daze
+    const timelineId = await getTimelineIdForBossName(b.name);
+    if (!timelineId) {
+      // 롤백
+      setDazeCounts((prev) => {
+        const next = { ...prev, [b.id]: prevDaze };
+        writeCounts(LS_DAZE, next);
+        return next;
+      });
+      setMissCounts((prev) => {
+        const next = { ...prev, [b.id]: prevMiss };
+        writeCounts(LS_MISS, next);
+        return next;
+      });
+      alert("해당 보스의 최근 컷 타임라인을 찾을 수 없습니다.");
+      return;
+    }
+
+    const url = `/v1/boss-timelines/${timelineId}/daze`;
+    try {
+      await postJSON(url, { atIso: new Date().toISOString() });
+      console.log("[API] 멍 +1 성공:", url);
+      // 필요 시 동기화
+      // await loadBosses();
+    } catch (e: any) {
+      console.error("[API] 멍 +1 실패:", url, e?.message || e);
+      // 롤백
+      setDazeCounts((prev) => {
+        const next = { ...prev, [b.id]: prevDaze };
+        writeCounts(LS_DAZE, next);
+        return next;
+      });
+      setMissCounts((prev) => {
+        const next = { ...prev, [b.id]: prevMiss };
+        writeCounts(LS_MISS, next);
+        return next;
+      });
+      alert("멍 기록에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+    }
   }
 
-  // 강조 UI 클래스
+  // 강조/배지 클래스
   const highlightSoonWrap = "rounded-xl ring-2 ring-rose-300 bg-rose-50/60 transition-colors";
   const highlightOverWrap = "rounded-xl ring-2 ring-sky-300 bg-sky-50/60 transition-colors";
-
   const soonBadge = (
     <div className="mb-1 -mt-1">
       <span className="inline-block px-2 py-0.5 rounded-md text-[11px] font-medium bg-rose-500/10 text-rose-700 border border-rose-200">
@@ -522,7 +590,6 @@ export default function LoggedInDashboard() {
       </span>
     </div>
   );
-
   const overBadge = (minsOver: number) => (
     <div className="mb-1 -mt-1">
       <span className="inline-block px-2 py-0.5 rounded-md text-[11px] font-medium bg-sky-500/10 text-sky-700 border border-sky-200">
@@ -531,22 +598,106 @@ export default function LoggedInDashboard() {
     </div>
   );
 
-  // 좌/중 섹션 분리: 미입력 1회 이상 → 중앙, 그 외(최근 컷/멍 처리 포함) → 좌측
-  const leftTracked = useMemo(
-    () => trackedFiltered.filter((b) => (missCounts[b.id] ?? 0) === 0),
-    [trackedFiltered, missCounts]
-  );
-  const middleTracked = useMemo(
-    () => trackedFiltered.filter((b) => (missCounts[b.id] ?? 0) > 0),
-    [trackedFiltered, missCounts]
-  );
+  // 좌측(진행중): miss == 0 && 기록 있음 (유예 중에도 여기 남아있음)
+  const leftTracked = useMemo(() => {
+    const now = Date.now();
+    const withKey = filteredAll.map((b) => {
+      const next = getNextMsGeneric(b);
+      const overdueUntil = overdueUntilRef.current.get(b.id);
+      const isOverKeep = overdueUntil != null && now < overdueUntil;
+      const key = isOverKeep
+        ? 0 // 유예 중이면 상단 유지
+        : Number.isFinite(next)
+        ? Math.max(next - now, 0)
+        : Number.POSITIVE_INFINITY;
+      return { b, key };
+    });
 
+    return withKey
+      .filter(({ b }) => (missCounts[b.id] ?? 0) === 0 && hasAnyRecord(b))
+      .sort((a, z) => a.key - z.key)
+      .map(({ b }) => b);
+  }, [filteredAll, missCounts, dazeCounts, tick]);
+
+  // 중앙(미입력): miss > 0 || 기록 없음
+  const middleTracked = useMemo(() => {
+    const now = Date.now();
+    const withKey = filteredAll.map((b) => {
+      const next = getNextMsGeneric(b);
+      const key = Number.isFinite(next) ? Math.max(next - now, 0) : Number.POSITIVE_INFINITY;
+      return { b, key };
+    });
+
+    return withKey
+      .filter(({ b }) => (missCounts[b.id] ?? 0) > 0 || !hasAnyRecord(b))
+      .sort((a, z) => a.key - z.key)
+      .map(({ b }) => b);
+  }, [filteredAll, missCounts, dazeCounts, tick]);
+
+  // 카드 렌더 (섹션별 카운트 표기 달리)
+  const renderLeftCard = (b: BossDto) => {
+    const remain = remainingMsFor(b);
+    const overdueUntil = overdueUntilRef.current.get(b.id);
+    const now = Date.now();
+    const isOverdueKeep = !!overdueUntil && now < overdueUntil;
+    const minsOver = isOverdueKeep
+      ? Math.max(1, Math.ceil((now - (overdueUntil - OVERDUE_GRACE_MS)) / MIN))
+      : remain < 0
+      ? Math.max(1, Math.ceil(-remain / MIN))
+      : 0;
+    const soon = remain <= HIGHLIGHT_MS && remain > 0 && !isOverdueKeep;
+    const wrapClass = soon ? highlightSoonWrap : isOverdueKeep ? highlightOverWrap : "";
+
+    return (
+      <div key={b.id} className={wrapClass}>
+        {soon && soonBadge}
+        {isOverdueKeep && overBadge(minsOver)}
+        <BossCard
+          b={b}
+          onQuickCut={instantCut}
+          onDaze={addDaze}              // 진행중에서는 멍 버튼 O
+          showCount="daze"
+          dazeCount={dazeCounts[b.id] ?? 0}
+        />
+      </div>
+    );
+  };
+
+  const renderMiddleCard = (b: BossDto) => {
+    const remain = remainingMsFor(b);
+    const overdueUntil = overdueUntilRef.current.get(b.id);
+    const now = Date.now();
+    const isOverdueKeep = !!overdueUntil && now < overdueUntil;
+    const minsOver = isOverdueKeep
+      ? Math.max(1, Math.ceil((now - (overdueUntil - OVERDUE_GRACE_MS)) / MIN))
+      : remain < 0
+      ? Math.max(1, Math.ceil(-remain / MIN))
+      : 0;
+    const soon = remain <= HIGHLIGHT_MS && remain > 0 && !isOverdueKeep;
+    const wrapClass = soon ? highlightSoonWrap : isOverdueKeep ? highlightOverWrap : "";
+
+    return (
+      <div key={b.id} className={wrapClass}>
+        {soon && soonBadge}
+        {isOverdueKeep && overBadge(minsOver)}
+        <BossCard
+          b={b}
+          onQuickCut={instantCut}
+          /* onDaze 전달 안함 → 멍 버튼 숨김 */
+          showCount="miss"
+          missCount={missCounts[b.id] ?? 0}
+        />
+      </div>
+    );
+  };
+
+  // JSX
   return (
     <div className="grid grid-rows-[auto_1fr] gap-3 h-[calc(100vh-56px)]">
-      {/* 검색 바 + 음성 알림 토글 + 간편 보스 컷 */}
+      {/* 상단바 */}
       <div className="flex items-center gap-3 flex-wrap">
         {/* 검색 */}
-        <div className="relative w-full max-w-xl">
+        <div className="relative w/full max-w-xl">
           <input
             className="w-full border rounded-xl px-4 py-2 pr-10"
             placeholder="보스 이름 또는 위치로 검색 (예: 오만6층, 안타, 엘모어)"
@@ -566,17 +717,13 @@ export default function LoggedInDashboard() {
           )}
         </div>
 
-        {/* 음성 알림 토글 */}
+        {/* 음성 알림 */}
         <label className="flex items-center gap-2 text-sm select-none">
-          <input
-            type="checkbox"
-            checked={voiceEnabled}
-            onChange={(e) => setVoiceEnabled(e.currentTarget.checked)}
-          />
+          <input type="checkbox" checked={voiceEnabled} onChange={(e) => setVoiceEnabled(e.currentTarget.checked)} />
           음성 알림
         </label>
 
-        {/* 간편 보스 컷 */}
+        {/* 간편 컷 */}
         <div className="flex items-center gap-2">
           <input
             className="border rounded-xl px-3 py-2 w-[280px]"
@@ -602,175 +749,47 @@ export default function LoggedInDashboard() {
         </div>
       </div>
 
-      {/* 본문 그리드 */}
+      {/* 본문 3컬럼 */}
       <div className="grid grid-cols-3 gap-4 min-h-0">
-        {/* 1) 좌측: 진행중 보스타임 (임박/지남 3분 유예 포함) — 미입력 0회 */}
+        {/* 좌측: 진행중 */}
         <section className="col-span-1 min-h-0 overflow-y-auto px-1">
           <h2 className="text-base font-semibold mb-2 text-slate-700">
             진행중 보스타임
-            {query ? (
-              <span className="ml-2 text-xs text-slate-400">
-                (검색결과 {leftTracked.length}개)
-              </span>
-            ) : null}
+            {query ? <span className="ml-2 text-xs text-slate-400">({leftTracked.length}개)</span> : null}
           </h2>
           <div className="space-y-2">
             {loading ? (
-              <div className="h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-500">
-                불러오는 중…
-              </div>
+              <div className="h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-500">불러오는 중…</div>
             ) : leftTracked.length === 0 ? (
               <div className="h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-400 italic">
                 {query ? "검색 결과가 없습니다." : "스케줄 추적 중인 보스가 없습니다."}
               </div>
             ) : (
-              leftTracked.map((b) => {
-                const remain = remainingMsFor(b, "tracked");
-
-                // ✅ 유예 중 여부/지남 분 계산(서버 next가 바뀌어도 파란색 유지)
-                const overdueUntil = overdueUntilRef.current.get(b.id);
-                const now = Date.now();
-                const isOverdueKeep = !!overdueUntil && now < overdueUntil;
-                const minsOver = isOverdueKeep
-                  ? Math.max(1, Math.ceil((now - (overdueUntil - OVERDUE_GRACE_MS)) / MIN))
-                  : Math.max(1, Math.ceil(-remain / MIN)); // 안전망
-
-                const soon = remain <= HIGHLIGHT_MS && remain > 0 && !isOverdueKeep;
-                const justOver = isOverdueKeep; // ✅ 유예중이면 무조건 파란색
-
-                const wrapClass = soon ? highlightSoonWrap : justOver ? highlightOverWrap : "";
-
-                const daze = dazeCounts[b.id] ?? 0;
-                const miss = missCounts[b.id] ?? 0;
-
-                return (
-                  <div key={b.id} className={wrapClass}>
-                    {soon && soonBadge}
-                    {justOver && overBadge(minsOver)}
-                    <BossCard b={b} onCut={() => handleCut(b)} />
-
-                    {/* 액션 바 */}
-                    <div className="mt-2 flex items-center gap-2 px-1 pb-1">
-                      <button
-                        type="button"
-                        onClick={() => handleCut(b)}
-                        className="px-2 py-1 rounded-md border text-xs hover:bg-slate-50"
-                        title="상세 입력 모달 열기"
-                      >
-                        상세 컷
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => instantCut(b)}
-                        className="px-2 py-1 rounded-md border text-xs bg-slate-900 text-white hover:opacity-90"
-                        title="지금 시간으로 즉시 컷"
-                      >
-                        컷
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => addDaze(b)}
-                        className="px-2 py-1 rounded-md border text-xs hover:bg-slate-50"
-                        title="멍 +1"
-                      >
-                        멍
-                      </button>
-
-                      <span className="ml-3 text-[11px] text-slate-500">
-                        멍 <b className="text-slate-700">{daze}</b>회
-                      </span>
-                      <span className="text-[11px] text-slate-500">
-                        미입력 <b className="text-slate-700">{miss}</b>회
-                      </span>
-                    </div>
-                  </div>
-                );
-              })
+              leftTracked.map(renderLeftCard)
             )}
           </div>
         </section>
 
-        {/* 2) 가운데: 미입력된 보스 (미입력 1회 이상) */}
+        {/* 중앙: 미입력 */}
         <section className="col-span-1 min-h-0 overflow-y-auto px-1">
           <h2 className="text-base font-semibold mb-2 text-slate-700">
             미입력된 보스
-            {query ? (
-              <span className="ml-2 text-xs text-slate-400">
-                (검색결과 {middleTracked.length}개)
-              </span>
-            ) : null}
+            {query ? <span className="ml-2 text-xs text-slate-400">({middleTracked.length}개)</span> : null}
           </h2>
           <div className="space-y-2">
             {loading ? (
-              <div className="h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-500">
-                불러오는 중…
-              </div>
+              <div className="h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-500">불러오는 중…</div>
             ) : middleTracked.length === 0 ? (
               <div className="h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-400 italic">
                 {query ? "검색 결과가 없습니다." : "미입력된 보스가 없습니다."}
               </div>
             ) : (
-              middleTracked.map((b) => {
-                const remain = remainingMsFor(b, "tracked");
-                const overdueUntil = overdueUntilRef.current.get(b.id);
-                const now = Date.now();
-                const isOverdueKeep = !!overdueUntil && now < overdueUntil;
-                const minsOver = isOverdueKeep
-                  ? Math.max(1, Math.ceil((now - (overdueUntil - OVERDUE_GRACE_MS)) / MIN))
-                  : Math.max(1, Math.ceil(-remain / MIN));
-
-                const soon = remain <= HIGHLIGHT_MS && remain > 0 && !isOverdueKeep;
-                const justOver = isOverdueKeep;
-                const wrapClass = soon ? highlightSoonWrap : justOver ? highlightOverWrap : "";
-
-                const daze = dazeCounts[b.id] ?? 0;
-                const miss = missCounts[b.id] ?? 0;
-
-                return (
-                  <div key={b.id} className={wrapClass}>
-                    {soon && soonBadge}
-                    {justOver && overBadge(minsOver)}
-                    <BossCard b={b} onCut={() => handleCut(b)} />
-
-                    {/* 액션 바 */}
-                    <div className="mt-2 flex items-center gap-2 px-1 pb-1">
-                      <button
-                        type="button"
-                        onClick={() => handleCut(b)}
-                        className="px-2 py-1 rounded-md border text-xs hover:bg-slate-50"
-                      >
-                        상세 컷
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => instantCut(b)}
-                        className="px-2 py-1 rounded-md border text-xs bg-slate-900 text-white hover:opacity-90"
-                      >
-                        컷
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => addDaze(b)}
-                        className="px-2 py-1 rounded-md border text-xs hover:bg-slate-50"
-                      >
-                        멍
-                      </button>
-
-                      <span className="ml-3 text-[11px] text-slate-500">
-                        멍 <b className="text-slate-700">{daze}</b>회
-                      </span>
-                      <span className="text-[11px] text-slate-500">
-                        미입력 <b className="text-slate-700">{miss}</b>회
-                      </span>
-                    </div>
-                  </div>
-                );
-              })
+              middleTracked.map(renderMiddleCard)
             )}
           </div>
         </section>
 
-        {/* 3) 우측: 비워둠 */}
+        {/* 우측: 비워둠 */}
         <section className="col-span-1 h-full px-1">
           <h2 className="text-base font-semibold mb-2 text-slate-700">비워둠</h2>
           <div className="h-full rounded-xl border-dashed border-2 border-slate-200 flex items-center justify-center text-slate-400">
@@ -778,22 +797,6 @@ export default function LoggedInDashboard() {
           </div>
         </section>
       </div>
-
-      {/* 잊보 섹션은 그대로(정렬/하이라이트만 적용) */}
-      {/* 필요 시 잊보를 별도 컬럼으로 두고 싶으면 위 레이아웃 조정 */}
-
-      {/* 컷 입력 모달 */}
-      <CutModal
-        open={cutOpen}
-        boss={selectedBoss}
-        onClose={() => setCutOpen(false)}
-        onSaved={async () => {
-          setCutOpen(false);
-          setSelectedBoss(null);
-          await loadBosses();
-        }}
-        defaultCutAt={formatNow()}
-      />
     </div>
   );
 }
