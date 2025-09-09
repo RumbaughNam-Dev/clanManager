@@ -437,6 +437,22 @@ export default function LoggedInDashboard() {
     const s = secs % 60;
     return `${m}:${String(s).padStart(2, "0")}`;
   }
+  /** 남은/지남 시간을 H:MM:SS 형태로 포맷 (양수=ceil, 음수=floor) */
+  function fmtHMS(ms: number): string | null {
+    if (!Number.isFinite(ms)) return null;
+    const negative = ms < 0;
+    const t = Math.abs(ms);
+
+    // 남은 시간은 올림(1.0초 미만도 1초로), 지남은 내림
+    const totalSec = negative ? Math.floor(t / 1000) : Math.ceil(t / 1000);
+
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+
+    return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  }
+
   function rightTimerBadge(remain: number, isOverdueKeep: boolean) {
     const nowOver = remain < 0 || isOverdueKeep;
     const abs = Math.abs(remain);
@@ -485,6 +501,77 @@ export default function LoggedInDashboard() {
       .map(({ b }) => b);
   }, [filteredAll, missCounts, dazeCounts, uiTick]);
 
+  /** 정사각형 타일 (3열 그리드용) */
+  function renderSquareTile(b: BossDto) {
+    const remain = remainingMsFor(b);
+    const hms = fmtHMS(remain);
+    const canDaze = !!b.isRandom; // 멍 가능 여부
+
+    return (
+      <div
+        key={b.id}
+        className="rounded-xl border shadow-sm p-3 text-sm bg-white aspect-square flex flex-col justify-between"
+        title={b.location || ""}
+      >
+        {/* 보스 이름 */}
+        <div className="font-medium truncate">{b.name}</div>
+
+        {/* 남은 시간 / 미입력 */}
+        <div className="text-xs text-slate-600">
+          {hms == null
+            ? "미입력"
+            : remain >= 0
+            ? `${hms} 뒤 젠`
+            : `${hms} 지남`}
+        </div>
+
+        {/* 버튼들 */}
+        <div className="flex items-center gap-2 mt-2">
+          <button
+            type="button"
+            onClick={() => instantCut(b)}
+            className="px-3 py-1.5 rounded-md text-xs text-white bg-slate-900 hover:opacity-90"
+            title="지금 시간으로 즉시 컷"
+          >
+            컷
+          </button>
+
+          {canDaze && (
+            <button
+              type="button"
+              onClick={() => addDaze(b)}
+              className="px-3 py-1.5 rounded-md text-xs border text-slate-700 hover:bg-slate-50"
+              title="멍 +1 (이번 타임 보스가 안 떴을 때)"
+            >
+              멍
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  /** 주어진 보스 리스트를 '5분 이내 젠(큰 카드)' / '그 외(타일)'로 분리 */
+  function splitSoonWithin5m(list: BossDto[]) {
+    const now = Date.now();
+    const soon: BossDto[] = [];
+    const rest: BossDto[] = [];
+
+    for (const b of list) {
+      const remain = remainingMsFor(b);
+      const overdueUntil = overdueUntilRef.current.get(b.id);
+      const isOverKeep = !!overdueUntil && now < overdueUntil;
+
+      // '곧(5분 이내) 젠' 정의: 0 < 남은시간 ≤ 5분, 유예 중(지남 유지) 아님
+      const isSoon = remain > 0 && remain <= HIGHLIGHT_MS && !isOverKeep;
+
+      if (isSoon) soon.push(b);
+      else rest.push(b);
+    }
+    return { soon, rest };
+  }
+
+
   /** 카드 렌더(좌/중) */
   const renderCard = (b: BossDto, section: "left" | "middle") => {
     const remain = remainingMsFor(b);
@@ -497,6 +584,7 @@ export default function LoggedInDashboard() {
     const wrapClass = soon ? highlightSoonWrap : justOver ? highlightOverWrap : "relative";
 
     const topRight = rightTimerBadge(remain, isOverdueKeep);
+    const hasTopBadge = !!topRight;
 
     // ✅ isRandom(= 멍 가능 여부) 보스만 멍 버튼/카운트 노출
     const canDaze = !!b.isRandom;
@@ -504,7 +592,8 @@ export default function LoggedInDashboard() {
     return (
       <div key={b.id} className={wrapClass}>
         {topRight}
-        <div className="pt-8">
+        {/* ⬇️ 배지가 있을 때만 상단 패딩 확보 */}
+        <div className={hasTopBadge ? "pt-8" : undefined}>
           <BossCard
             b={b}
             onQuickCut={instantCut}
@@ -867,7 +956,7 @@ export default function LoggedInDashboard() {
             }}
             title="형식: 시각 보스이름 (예: 2200 서드 / 22:00 서드 / 930 악마왕)"
           />
-          <button
+         <button
             type="button"
             className={`px-3 py-2 rounded-xl text-white ${quickSaving ? "bg-gray-300" : "bg-slate-900 hover:opacity-90"}`}
             onClick={submitQuickCut}
@@ -886,34 +975,62 @@ export default function LoggedInDashboard() {
             진행중 보스타임
             {query ? <span className="ml-2 text-xs text-slate-400">({leftTracked.length}개)</span> : null}
           </h2>
-          <div className="space-y-2">
+          <div className="space-y-3 flex-1 min-h-0 overflow-y-auto">
             {loading ? (
               <div className="h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-500">불러오는 중…</div>
             ) : leftTracked.length === 0 ? (
-              <div className="h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-400 italic">
+              <div className="mt-3 h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-400 italic">
                 {query ? "검색 결과가 없습니다." : "스케줄 추적 중인 보스가 없습니다."}
               </div>
             ) : (
-              leftTracked.map((b) => renderCard(b, "left"))
+             (() => {
+               const { soon, rest } = splitSoonWithin5m(leftTracked);
+               return (
+                 <>
+                   {/* 5분 이내 젠 보스들: 모두 큰 카드(BossCard)로 */}
+                   {soon.map((b) => renderCard(b, "left"))}
+                   {/* 나머지: 3열 정사각 타일 */}
+                   {rest.length > 0 && (
+                     <div className="grid grid-cols-3 gap-3">
+                       {rest.map((b) => renderSquareTile(b))}
+                     </div>
+                   )}
+                 </>
+               );
+             })()
             )}
           </div>
         </section>
 
         {/* 중앙: 미입력(비고정) */}
-        <section className="col-span-1 min-h-0 overflow-y-auto px-1">
+        <section className="col-span-1 h-full min-h-0 flex flex-col px-1">
           <h2 className="text-base font-semibold mb-2 text-slate-700">
             미입력된 보스
             {query ? <span className="ml-2 text-xs text-slate-400">({middleTracked.length}개)</span> : null}
           </h2>
-          <div className="space-y-2">
+         <div className="space-y-3 flex-1 min-h-0 overflow-y-auto">
             {loading ? (
               <div className="h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-500">불러오는 중…</div>
             ) : middleTracked.length === 0 ? (
-              <div className="h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-400 italic">
+              <div className="mt-3 h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-400 italic">
                 {query ? "검색 결과가 없습니다." : "미입력된 보스가 없습니다."}
               </div>
             ) : (
-              middleTracked.map((b) => renderCard(b, "middle"))
+              (() => {
+                const { soon, rest } = splitSoonWithin5m(middleTracked);
+                return (
+                  <>
+                    {/* 5분 이내 젠 보스들: 모두 큰 카드 */}
+                    {soon.map((b) => renderCard(b, "middle"))}
+                    {/* 나머지: 타일 */}
+                    {rest.length > 0 && (
+                      <div className="grid grid-cols-3 gap-3">
+                        {rest.map((b) => renderSquareTile(b))}
+                      </div>
+                    )}
+                  </>
+                );
+              })()
             )}
           </div>
         </section>
@@ -921,11 +1038,11 @@ export default function LoggedInDashboard() {
         {/* 우측: 고정 보스(05시 리셋, 00:00 이후 전부 파랑) */}
         <section className="col-span-1 min-h-0 overflow-y-auto px-1">
           <h2 className="text-base font-semibold mb-2 text-slate-700">고정 보스</h2>
-          <div className="space-y-2">
+          <div className="space-y-3">
             {loading ? (
               <div className="h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-500">불러오는 중…</div>
             ) : fixedSorted.length === 0 ? (
-              <div className="h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-400 italic">
+              <div className="mt-3 h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-400 italic">
                 고정 보스가 없습니다.
               </div>
             ) : (
