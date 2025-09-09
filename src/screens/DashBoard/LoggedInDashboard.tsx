@@ -558,17 +558,25 @@ export default function LoggedInDashboard() {
   /** 중앙(미입력) — 지남 보스는 항상 최상단 + 깜빡임 유지 */
   const middleTracked = useMemo(() => {
     const now = Date.now();
-    const withKey = filteredAll.map((b) => {
-      const next = getNextMsGeneric(b);
-      const baseKey = Number.isFinite(next) ? Math.max(next - now, 0) : Number.POSITIVE_INFINITY;
-      const isUnfilled = (missCounts[b.id] ?? 0) > 0 || !hasAnyRecord(b);
-      const key = isUnfilled ? (remainingMsFor(b) < 0 ? -999999 : baseKey) : Number.POSITIVE_INFINITY;
-      return { b, key };
-    });
 
-    return withKey
-      .filter(({ key }) => key !== Number.POSITIVE_INFINITY)
-      .sort((a, z) => a.key - z.key)
+    return filteredAll
+      // 미입력 섹션에 들어갈 보스만 남김: 미입력 카운트>0 이거나, 기록 자체가 없는 보스
+      .filter((b) => (missCounts[b.id] ?? 0) > 0 || !hasAnyRecord(b))
+      .map((b) => {
+        const remain = remainingMsFor(b);
+        // 정렬 키 산정
+        // 1) 지남: 최우선 상단 (음수 큰 우선순위)
+        // 2) 남아있음: 남은 시간 오름차순
+        // 3) 미입력(= remain === Infinity): 가장 아래쪽으로 보내기 위해 매우 큰 유한값
+        const sortKey =
+          remain < 0
+            ? -999999
+            : Number.isFinite(remain)
+            ? remain
+            : 9e15; // <- Infinity 대신 큰 유한값으로 하단 배치
+        return { b, sortKey };
+      })
+      .sort((a, z) => a.sortKey - z.sortKey)
       .map(({ b }) => b);
   }, [filteredAll, missCounts, dazeCounts, uiTick]);
 
