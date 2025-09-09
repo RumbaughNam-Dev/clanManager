@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { postJSON } from "@/lib/http";
-import BossCard from "./BossCard";
+// 큰 카드 제거: BossCard 사용 안 함
 import type { BossDto } from "../../types";
 
 /** ───────── 상수 ───────── */
@@ -44,6 +44,14 @@ function readCounts(key: string): CountMap {
     if (obj && typeof obj === "object") return obj as CountMap;
   } catch {}
   return {};
+}
+
+// mm:ss
+function fmtMMSS2(ms: number) {
+  const pos = Math.max(0, Math.ceil(ms / 1000)); // 남은 시간은 올림
+  const m = Math.floor(pos / 60);
+  const s = pos % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 function writeCounts(key: string, val: CountMap) {
   try {
@@ -140,18 +148,24 @@ export default function LoggedInDashboard() {
     overdueUntilRef.current = readOverdueMap();
   }, []);
 
+  // 고정 보스: 이번 발생까지 남은(ms) — (음수면 지남)
+  function fixedRemainMs(f: FixedBossDto, nowMs = Date.now()) {
+    const occ = fixedOccMs(f.genTime, nowMs);
+    if (!Number.isFinite(occ)) return Number.POSITIVE_INFINITY;
+    return occ - nowMs;
+  }
+
   /** 서버 로드 */
   async function loadBosses() {
     setLoading(true);
     try {
-      // 백엔드가 {tracked, forgotten, fixed} 반환
       const data = await postJSON<any>("/v1/dashboard/bosses");
       setTrackedRaw(data.tracked ?? []);
       setForgottenRaw(data.forgotten ?? []);
       setFixedRaw(
         ((data.fixed ?? []) as any[]).map((f) => ({
           ...f,
-          genTime: f.genTime == null ? null : Number(f.genTime), // ← 숫자로 강제
+          genTime: f.genTime == null ? null : Number(f.genTime),
         }))
       );
 
@@ -348,7 +362,6 @@ export default function LoggedInDashboard() {
     const toSpeak: Array<{ id: string; name: string; threshold: number }> = [];
     const toWarnMissed: Array<{ id: string; name: string }> = [];
 
-    // 5/1분 전
     for (const b of filteredAll) {
       const r = remainingMsFor(b);
       if (!(r > 0)) continue;
@@ -357,7 +370,6 @@ export default function LoggedInDashboard() {
         if (r <= th && !(prev?.has(th))) toSpeak.push({ id: b.id, name: b.name, threshold: th });
       }
     }
-    // 지남 3분 경고(유예 중)
     for (const b of filteredAll) {
       const r = remainingMsFor(b);
       if (r <= -MISSED_WARN_MS && r > -(MISSED_WARN_MS + 2 * MS)) {
@@ -374,7 +386,18 @@ export default function LoggedInDashboard() {
         await delay(100);
       }
       for (const x of toWarnMissed) {
-        try { await speakKorean(`컷 이나 멍 처리 하지 않으면 미입력 보스로 이동합니다.`); } catch { await playBeep(300); }
+        try { 
+          for (const x of toWarnMissed) {
+            try {
+              // ⬇️ 보스 이름을 넣어서 읽어주기
+              await speakKorean(`${x.name} 처리하지 않으면 미입력 보스로 이동합니다.`);
+            } catch {
+              await playBeep(300);
+            }
+            await delay(100);
+            missedWarnSetRef.current.add(x.id);
+          }
+         } catch { await playBeep(300); }
         await delay(100);
         missedWarnSetRef.current.add(x.id);
       }
@@ -430,44 +453,90 @@ export default function LoggedInDashboard() {
   }
 
   /** 좌/중 렌더 보조 */
-  function fmtMMSS(ms: number) {
-    const isOver = ms < 0;
-    const secs = Math.max(0, isOver ? Math.floor(-ms / 1000) : Math.ceil(ms / 1000));
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
-    return `${m}:${String(s).padStart(2, "0")}`;
-  }
   /** 남은/지남 시간을 H:MM:SS 형태로 포맷 (양수=ceil, 음수=floor) */
   function fmtHMS(ms: number): string | null {
     if (!Number.isFinite(ms)) return null;
     const negative = ms < 0;
     const t = Math.abs(ms);
-
-    // 남은 시간은 올림(1.0초 미만도 1초로), 지남은 내림
     const totalSec = negative ? Math.floor(t / 1000) : Math.ceil(t / 1000);
-
     const h = Math.floor(totalSec / 3600);
     const m = Math.floor((totalSec % 3600) / 60);
     const s = totalSec % 60;
-
     return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   }
 
-  function rightTimerBadge(remain: number, isOverdueKeep: boolean) {
-    const nowOver = remain < 0 || isOverdueKeep;
-    const abs = Math.abs(remain);
-    const within5m = abs <= 5 * MIN;
-    if (!within5m) return null;
-    const mmss = fmtMMSS(remain);
-    const label = !nowOver ? `${mmss} 남음` : `${mmss} 지남`;
+  /** 작은 직사각 타일(공용) */
+  function renderTile(b: BossDto) {
+    const remain = remainingMsFor(b);
+    const hms = fmtHMS(remain);
+
+    // 유예 중 여부
+    const overdueUntil = overdueUntilRef.current.get(b.id);
+    const isOverKeep = !!overdueUntil && Date.now() < overdueUntil;
+
+    // 5분 이내(남음) 또는 지남 ⇒ 깜빡임
+    const isSoon = remain > 0 && remain <= HIGHLIGHT_MS && !isOverKeep;
+    const shouldBlink = isSoon || remain < 0 || isOverKeep;
+
+    const blinkCls = shouldBlink
+      ? "animate-blink border-2 border-rose-500 bg-rose-50"
+      : "border border-slate-200 bg-white";
+
+    const canDaze = !!b.isRandom;
+
     return (
-      <span className="pointer-events-none absolute right-2 top-2 z-20 text-[11px] px-2 py-0.5 rounded-md border bg-white/80 backdrop-blur-sm shadow-sm">
-        {label}
-      </span>
+      <div
+        key={b.id}
+        className={`rounded-xl shadow-sm p-3 text-sm flex flex-col justify-between h-24 ${blinkCls}`}
+        title={b.location || ""}
+      >
+        <div className="font-medium truncate">{b.name}</div>
+
+        <div className="text-xs text-slate-600">
+          {hms == null ? "미입력" : remain >= 0 ? `${hms} 뒤 젠` : `${hms} 지남`}
+        </div>
+
+        <div className="flex items-center gap-2 mt-2">
+          <button
+            type="button"
+            onClick={() => instantCut(b)}
+            className="px-3 py-1.5 rounded-md text-xs text-white bg-slate-900 hover:opacity-90"
+            title="지금 시간으로 즉시 컷"
+          >
+            컷
+          </button>
+
+          {canDaze && (
+            <button
+              type="button"
+              onClick={() => addDaze(b)}
+              className="px-3 py-1.5 rounded-md text-xs border text-slate-700 hover:bg-slate-50"
+              title="멍 +1"
+            >
+              멍
+            </button>
+          )}
+        </div>
+      </div>
     );
   }
-  const highlightSoonWrap = "relative rounded-xl ring-2 ring-rose-300 bg-rose-50/60 transition-colors";
-  const highlightOverWrap = "relative rounded-xl ring-2 ring-sky-300 bg-sky-50/60 transition-colors";
+
+  /** 리스트를 '곧(≤5분)'과 나머지로 분리 (작은 타일만 사용) */
+  function splitSoonWithin5m(list: BossDto[]) {
+    const now = Date.now();
+    const soon: BossDto[] = [];
+    const rest: BossDto[] = [];
+
+    for (const b of list) {
+      const remain = remainingMsFor(b);
+      const overdueUntil = overdueUntilRef.current.get(b.id);
+      const isOverKeep = !!overdueUntil && now < overdueUntil;
+      const isSoon = remain > 0 && remain <= HIGHLIGHT_MS && !isOverKeep;
+      if (isSoon) soon.push(b);
+      else rest.push(b);
+    }
+    return { soon, rest };
+  }
 
   /** 좌측(진행중) */
   const leftTracked = useMemo(() => {
@@ -486,138 +555,28 @@ export default function LoggedInDashboard() {
       .map(({ b }) => b);
   }, [filteredAll, missCounts, dazeCounts, uiTick]);
 
-  /** 중앙(미입력) */
+  /** 중앙(미입력) — 지남 보스는 항상 최상단 + 깜빡임 유지 */
   const middleTracked = useMemo(() => {
     const now = Date.now();
     const withKey = filteredAll.map((b) => {
       const next = getNextMsGeneric(b);
-      const key = Number.isFinite(next) ? Math.max(next - now, 0) : Number.POSITIVE_INFINITY;
+      const baseKey = Number.isFinite(next) ? Math.max(next - now, 0) : Number.POSITIVE_INFINITY;
+      const isUnfilled = (missCounts[b.id] ?? 0) > 0 || !hasAnyRecord(b);
+      const key = isUnfilled ? (remainingMsFor(b) < 0 ? -999999 : baseKey) : Number.POSITIVE_INFINITY;
       return { b, key };
     });
 
     return withKey
-      .filter(({ b }) => (missCounts[b.id] ?? 0) > 0 || !hasAnyRecord(b))
+      .filter(({ key }) => key !== Number.POSITIVE_INFINITY)
       .sort((a, z) => a.key - z.key)
       .map(({ b }) => b);
   }, [filteredAll, missCounts, dazeCounts, uiTick]);
-
-  /** 정사각형 타일 (3열 그리드용) */
-  function renderSquareTile(b: BossDto) {
-    const remain = remainingMsFor(b);
-    const hms = fmtHMS(remain);
-    const canDaze = !!b.isRandom; // 멍 가능 여부
-
-    return (
-      <div
-        key={b.id}
-        className="rounded-xl border shadow-sm p-3 text-sm bg-white aspect-square flex flex-col justify-between"
-        title={b.location || ""}
-      >
-        {/* 보스 이름 */}
-        <div className="font-medium truncate">{b.name}</div>
-
-        {/* 남은 시간 / 미입력 */}
-        <div className="text-xs text-slate-600">
-          {hms == null
-            ? "미입력"
-            : remain >= 0
-            ? `${hms} 뒤 젠`
-            : `${hms} 지남`}
-        </div>
-
-        {/* 버튼들 */}
-        <div className="flex items-center gap-2 mt-2">
-          <button
-            type="button"
-            onClick={() => instantCut(b)}
-            className="px-3 py-1.5 rounded-md text-xs text-white bg-slate-900 hover:opacity-90"
-            title="지금 시간으로 즉시 컷"
-          >
-            컷
-          </button>
-
-          {canDaze && (
-            <button
-              type="button"
-              onClick={() => addDaze(b)}
-              className="px-3 py-1.5 rounded-md text-xs border text-slate-700 hover:bg-slate-50"
-              title="멍 +1 (이번 타임 보스가 안 떴을 때)"
-            >
-              멍
-            </button>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  /** 주어진 보스 리스트를 '5분 이내 젠(큰 카드)' / '그 외(타일)'로 분리 */
-  function splitSoonWithin5m(list: BossDto[]) {
-    const now = Date.now();
-    const soon: BossDto[] = [];
-    const rest: BossDto[] = [];
-
-    for (const b of list) {
-      const remain = remainingMsFor(b);
-      const overdueUntil = overdueUntilRef.current.get(b.id);
-      const isOverKeep = !!overdueUntil && now < overdueUntil;
-
-      // '곧(5분 이내) 젠' 정의: 0 < 남은시간 ≤ 5분, 유예 중(지남 유지) 아님
-      const isSoon = remain > 0 && remain <= HIGHLIGHT_MS && !isOverKeep;
-
-      if (isSoon) soon.push(b);
-      else rest.push(b);
-    }
-    return { soon, rest };
-  }
-
-
-  /** 카드 렌더(좌/중) */
-  const renderCard = (b: BossDto, section: "left" | "middle") => {
-    const remain = remainingMsFor(b);
-    const overdueUntil = overdueUntilRef.current.get(b.id);
-    const now = Date.now();
-    const isOverdueKeep = !!overdueUntil && now < overdueUntil;
-
-    const soon = remain <= HIGHLIGHT_MS && remain > 0 && !isOverdueKeep;
-    const justOver = isOverdueKeep || remain < 0;
-    const wrapClass = soon ? highlightSoonWrap : justOver ? highlightOverWrap : "relative";
-
-    const topRight = rightTimerBadge(remain, isOverdueKeep);
-    const hasTopBadge = !!topRight;
-
-    // ✅ isRandom(= 멍 가능 여부) 보스만 멍 버튼/카운트 노출
-    const canDaze = !!b.isRandom;
-
-    return (
-      <div key={b.id} className={wrapClass}>
-        {topRight}
-        {/* ⬇️ 배지가 있을 때만 상단 패딩 확보 */}
-        <div className={hasTopBadge ? "pt-8" : undefined}>
-          <BossCard
-            b={b}
-            onQuickCut={instantCut}
-            onDaze={canDaze ? addDaze : undefined}                        // ← 보스별로 멍 버튼 토글
-            showCount={
-              section === "middle"
-                ? "miss"                                                // 중앙은 계속 미입력 카운트 보여줌
-                : canDaze
-                ? "daze"                                                // 좌측 + 멍 가능 보스만 멍 카운트
-                : undefined                                             // 좌측 + 멍 불가면 카운트 숨김
-            }
-            dazeCount={canDaze && section === "left" ? (dazeCounts[b.id] ?? 0) : undefined}
-            missCount={section === "middle" ? (missCounts[b.id] ?? 0) : undefined}
-          />
-        </div>
-      </div>
-    );
-  };
 
   /** ───────── 우측: 고정 보스(05시 기준 사이클) ───────── */
 
   // 분(0~1439) → "HH:mm"
   function fmtDaily(genTime: unknown) {
-    const n = genTime == null ? NaN : Number(genTime);       // ← 방어 캐스팅
+    const n = genTime == null ? NaN : Number(genTime);
     if (!Number.isFinite(n)) return "—";
     const m = Math.max(0, Math.min(1439, Math.floor(n)));
     const hh = Math.floor(m / 60);
@@ -625,41 +584,32 @@ export default function LoggedInDashboard() {
     return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
   }
 
-  // 게임일 시작(05:00)
   function cycleStartMs(nowMs = Date.now()) {
     const d = new Date(nowMs);
     const base = new Date(d);
     base.setSeconds(0, 0);
-    if (d.getHours() >= 5) base.setHours(5, 0, 0, 0);   // 오늘 05:00
-    else { base.setDate(base.getDate() - 1); base.setHours(5, 0, 0, 0); } // 어제 05:00
+    if (d.getHours() >= 5) base.setHours(5, 0, 0, 0);
+    else { base.setDate(base.getDate() - 1); base.setHours(5, 0, 0, 0); }
     return base.getTime();
   }
-  function nextCycleStartMs(curStartMs: number) {
-    return curStartMs + DAY;
-  }
+  function nextCycleStartMs(curStartMs: number) { return curStartMs + DAY; }
 
-  // 고정 보스: 이번 사이클 발생 시각(ms)
   function fixedOccMs(genTime: unknown, nowMs = Date.now()) {
-    const n = genTime == null ? NaN : Number(genTime);       // ← 방어 캐스팅
+    const n = genTime == null ? NaN : Number(genTime);
     if (!Number.isFinite(n)) return Number.POSITIVE_INFINITY;
     const start = cycleStartMs(nowMs);
-    const offsetMin = ((Math.floor(n) - 300 + 1440) % 1440); // 05:00을 0으로 보정
+    const offsetMin = ((Math.floor(n) - 300 + 1440) % 1440);
     return start + offsetMin * MIN;
   }
-  // 마지막 보스(00:00)의 이번 사이클 발생 시각
-  function lastOccMs(nowMs = Date.now()) {
-    return fixedOccMs(0, nowMs);
-  }
-  // 00:00 이후~05:00 이전 → 전부 파랑
+  function lastOccMs(nowMs = Date.now()) { return fixedOccMs(0, nowMs); }
   function isPostLastWindow(nowMs = Date.now()) {
     const start = cycleStartMs(nowMs);
     const last = lastOccMs(nowMs);
     const end = nextCycleStartMs(start);
     return nowMs >= last && nowMs < end;
   }
-  // 이번 사이클에서 잡힘(파랑) 판정
   function fixedIsCaughtCycle(f: FixedBossDto, nowMs = Date.now()) {
-    if (isPostLastWindow(nowMs)) return true; // 00:00 이후~05:00 전은 전부 파랑
+    if (isPostLastWindow(nowMs)) return true;
     if (!f.lastCutAt || f.genTime == null || !Number.isFinite(f.genTime)) return false;
     const occ = fixedOccMs(f.genTime, nowMs);
     const cut = new Date(f.lastCutAt).getTime();
@@ -668,21 +618,57 @@ export default function LoggedInDashboard() {
     return cut >= occ && cut < cycleEnd;
   }
 
-  // 고정 정렬(다음 발생 순서, id=18은 항상 최하단)
   const fixedSorted = useMemo(() => {
-    const arr = [...fixedRaw];
     const now = Date.now();
-    arr.sort((a, b) => {
-      if (a.id === "18" && b.id !== "18") return 1;
-      if (b.id === "18" && a.id !== "18") return -1;
-      const av = fixedOccMs(a.genTime, now);
-      const bv = fixedOccMs(b.genTime, now);
-      return av - bv;
+
+    type Row = {
+      f: FixedBossDto;
+      group: number;  // 0=지남<5m(빨강 상단 고정), 1=곧/대기(정상 정렬), 2=완료/지남>5m(하단)
+      key: number;
+    };
+
+    const rows: Row[] = fixedRaw.map((f) => {
+      const remain = fixedRemainMs(f, now);                // >0: 남음, <0: 지남
+      const overdueKeep = remain < 0 && remain >= -OVERDUE_GRACE_MS; // 지남~5분 유예
+      const soon = remain > 0 && remain <= HIGHLIGHT_MS;   // 5분 이내
+      const caught = fixedIsCaughtCycle(f, now);           // 이번 사이클 이미 잡힘(파랑)
+      const postLast = isPostLastWindow(now);              // 00~05시 전체 파랑
+      const afterGrace = remain <= -OVERDUE_GRACE_MS;      // 지남 5분 초과
+
+      // 파랑: 잡힘이거나(또는 00~05시) 혹은 지남 5분 초과
+      const isBlue = caught || postLast || afterGrace;
+
+      // 그룹 결정
+      // 0: 지남<=0 && 유예중(빨강 최상단 고정)
+      // 1: 그 외 '대기/곧'(정상 정렬 — 남은 시간 오름차순)
+      // 2: 파랑(잡힘/지남5분초과/00~05시) — 맨 아래
+      let group = 1;
+      if (overdueKeep) group = 0;
+      else if (isBlue) group = 2;
+
+      // 정렬 키
+      // group 0: 지남 절댓값 작을수록 위 (방금 지난게 조금 더 위). 음수 사용해서 항상 최상단 유지
+      // group 1: 남은 시간 오름차순
+      // group 2: 발생시각(오름차순) — 맨 아래 묶음 내부 정렬
+      let key: number;
+      if (group === 0) key = Math.abs(remain);
+      else if (group === 1) key = Number.isFinite(remain) ? remain : Number.POSITIVE_INFINITY;
+      else key = fixedOccMs(f.genTime, now);
+
+      return { f, group, key };
     });
-    return arr;
+
+    rows.sort((a, b) => {
+      if (a.group !== b.group) return a.group - b.group;
+      // id === "18"은 항상 맨 아래(요구 유지)
+      if (a.f.id === "18" && b.f.id !== "18") return 1;
+      if (b.f.id === "18" && a.f.id !== "18") return -1;
+      return a.key - b.key;
+    });
+
+    return rows.map((r) => r.f);
   }, [fixedRaw, uiTick]);
 
-  // 다음 잡아야 할 보스(빨강): 아직 안 잡힌, id!=18 중 가장 이른 발생
   const nextTargetId = useMemo(() => {
     const now = Date.now();
     let bestId: string | null = null;
@@ -696,7 +682,6 @@ export default function LoggedInDashboard() {
     return bestId;
   }, [fixedSorted, uiTick]);
 
-  // 고정 보스 5/1분 전 음성 안내(05:00 기준 리셋)
   useEffect(() => {
     if (!voiceEnabled || fixedSorted.length === 0) return;
 
@@ -713,8 +698,8 @@ export default function LoggedInDashboard() {
       const occ = fixedOccMs(f.genTime, now);
       if (!Number.isFinite(occ)) continue;
       const remain = occ - now;
-      if (!(remain > 0)) continue;                // 지난 건 제외
-      if (occ >= nextCycleStartMs(curStart)) continue; // 사이클 밖 제외
+      if (!(remain > 0)) continue;
+      if (occ >= nextCycleStartMs(curStart)) continue;
 
       const prev = fixedAlertedMapRef.current.get(f.id);
       for (const th of ALERT_THRESHOLDS) {
@@ -734,7 +719,6 @@ export default function LoggedInDashboard() {
       }
     })().catch(() => {});
 
-    // 상태 저장
     for (const x of toSpeak) {
       const set = fixedAlertedMapRef.current.get(x.id) ?? new Set<number>();
       set.add(x.threshold);
@@ -956,7 +940,7 @@ export default function LoggedInDashboard() {
             }}
             title="형식: 시각 보스이름 (예: 2200 서드 / 22:00 서드 / 930 악마왕)"
           />
-         <button
+          <button
             type="button"
             className={`px-3 py-2 rounded-xl text-white ${quickSaving ? "bg-gray-300" : "bg-slate-900 hover:opacity-90"}`}
             onClick={submitQuickCut}
@@ -975,7 +959,8 @@ export default function LoggedInDashboard() {
             진행중 보스타임
             {query ? <span className="ml-2 text-xs text-slate-400">({leftTracked.length}개)</span> : null}
           </h2>
-          <div className="space-y-3 flex-1 min-h-0 overflow-y-auto">
+
+          <div className="flex-1 min-h-0 overflow-y-auto">
             {loading ? (
               <div className="h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-500">불러오는 중…</div>
             ) : leftTracked.length === 0 ? (
@@ -983,21 +968,15 @@ export default function LoggedInDashboard() {
                 {query ? "검색 결과가 없습니다." : "스케줄 추적 중인 보스가 없습니다."}
               </div>
             ) : (
-             (() => {
-               const { soon, rest } = splitSoonWithin5m(leftTracked);
-               return (
-                 <>
-                   {/* 5분 이내 젠 보스들: 모두 큰 카드(BossCard)로 */}
-                   {soon.map((b) => renderCard(b, "left"))}
-                   {/* 나머지: 3열 정사각 타일 */}
-                   {rest.length > 0 && (
-                     <div className="grid grid-cols-3 gap-3">
-                       {rest.map((b) => renderSquareTile(b))}
-                     </div>
-                   )}
-                 </>
-               );
-             })()
+              (() => {
+                const { soon, rest } = splitSoonWithin5m(leftTracked);
+                const merged = [...soon, ...rest]; // 한 그리드에 합치기
+                return (
+                  <div className="grid grid-cols-3 gap-3">
+                    {merged.map((b) => renderTile(b))}
+                  </div>
+                );
+              })()
             )}
           </div>
         </section>
@@ -1008,7 +987,8 @@ export default function LoggedInDashboard() {
             미입력된 보스
             {query ? <span className="ml-2 text-xs text-slate-400">({middleTracked.length}개)</span> : null}
           </h2>
-         <div className="space-y-3 flex-1 min-h-0 overflow-y-auto">
+
+          <div className="flex-1 min-h-0 overflow-y-auto">
             {loading ? (
               <div className="h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-500">불러오는 중…</div>
             ) : middleTracked.length === 0 ? (
@@ -1018,17 +998,11 @@ export default function LoggedInDashboard() {
             ) : (
               (() => {
                 const { soon, rest } = splitSoonWithin5m(middleTracked);
+                const merged = [...soon, ...rest];
                 return (
-                  <>
-                    {/* 5분 이내 젠 보스들: 모두 큰 카드 */}
-                    {soon.map((b) => renderCard(b, "middle"))}
-                    {/* 나머지: 타일 */}
-                    {rest.length > 0 && (
-                      <div className="grid grid-cols-3 gap-3">
-                        {rest.map((b) => renderSquareTile(b))}
-                      </div>
-                    )}
-                  </>
+                  <div className="grid grid-cols-3 gap-3">
+                    {merged.map((b) => renderTile(b))}
+                  </div>
                 );
               })()
             )}
@@ -1048,15 +1022,34 @@ export default function LoggedInDashboard() {
             ) : (
               fixedSorted.map((fb) => {
                 const now = Date.now();
+                const remain = fixedRemainMs(fb, now);                 // +: 남음, -: 지남
+                const overdueKeep = remain < 0 && remain >= -OVERDUE_GRACE_MS;
+                const soon = remain > 0 && remain <= HIGHLIGHT_MS;
+                const afterGrace = remain <= -OVERDUE_GRACE_MS;
                 const isCaught = fixedIsCaughtCycle(fb, now);
-                const isNext = !isCaught && fb.id === nextTargetId && !isPostLastWindow(now);
-                const wrapClass = isCaught
-                  ? "rounded-xl border shadow-sm p-3 text-sm ring-2 ring-sky-300 bg-sky-50/60"   // 잡힘=파랑
-                  : isNext
-                  ? "rounded-xl border shadow-sm p-3 text-sm ring-2 ring-rose-300 bg-rose-50/60" // 다음=빨강
-                  : "rounded-xl border shadow-sm p-3 text-sm bg-white";
+                const postLast = isPostLastWindow(now);
+
+                // 스타일 결정
+                const isBlue = isCaught || postLast || afterGrace;           // 파랑 상태
+                const isRed = soon || overdueKeep;                           // 빨강 상태(깜빡)
+                const wrapClass =
+                  isRed
+                    ? "relative rounded-xl border shadow-sm p-3 text-sm ring-2 ring-rose-400 bg-rose-50/60 animate-blink"
+                    : isBlue
+                    ? "relative rounded-xl border shadow-sm p-3 text-sm ring-2 ring-sky-300 bg-sky-50/60"
+                    : "relative rounded-xl border shadow-sm p-3 text-sm bg-white";
+
+                // 5분 전부터 우하단 카운트(mm:ss 남음)
+                const showCountdown = remain > 0 && remain <= HIGHLIGHT_MS;
+                const countdownBadge = showCountdown ? (
+                  <span className="pointer-events-none absolute right-2 bottom-2 z-20 text-[11px] px-2 py-0.5 rounded-md border bg-white/90 backdrop-blur-sm shadow-sm">
+                    {fmtMMSS2(remain)} 남음
+                  </span>
+                ) : null;
+
                 return (
                   <div key={fb.id} className={wrapClass}>
+                    {countdownBadge}
                     <div className="flex items-center justify-between">
                       <div className="font-medium truncate">{fb.name}</div>
                       <div className="text-xs text-slate-500 ml-2">{fb.location}</div>
@@ -1064,6 +1057,11 @@ export default function LoggedInDashboard() {
                     <div className="mt-1 text-xs text-slate-600">
                       젠 시각: <span className="font-semibold">{fmtDaily(fb.genTime)}</span>
                     </div>
+                    {/* 상태 텍스트(선택): 필요하면 아래 주석 해제
+                    <div className="mt-1 text-[11px] text-slate-500">
+                      {soon ? "곧 젠" : overdueKeep ? "지남(유예중)" : isBlue ? "완료/대기" : "대기"}
+                    </div>
+                    */}
                   </div>
                 );
               })
