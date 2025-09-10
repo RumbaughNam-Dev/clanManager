@@ -1,6 +1,5 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { postJSON } from "@/lib/http";
-// 큰 카드 제거: BossCard 사용 안 함
 import type { BossDto } from "../../types";
 
 /** ───────── 상수 ───────── */
@@ -18,7 +17,8 @@ const OVERDUE_GRACE_MS = 5 * MIN;
 const MISSED_WARN_MS = 3 * MIN;
 
 // 로컬 스토리지 키
-const LS_DAZE = "bossDazeCounts";
+// ⬇️ 멍 로컬 스토리지는 사용하지 않음
+// const LS_DAZE = "bossDazeCounts";
 const LS_MISS = "bossMissCounts";
 const LS_OVERDUE_UNTIL = "bossOverdueUntil";
 
@@ -27,7 +27,7 @@ type FixedBossDto = {
   id: string;
   name: string;
   location: string;
-  genTime: number | null;   // 0~1439 (HH*60+mm) — DB 필드명: genTime(분 단위)
+  genTime: number | null;   // 0~1439 (HH*60+mm)
   respawn: number;
   isRandom: boolean;
   lastCutAt: string | null; // 최근 컷
@@ -113,8 +113,7 @@ export default function LoggedInDashboard() {
   const [quickCutText, setQuickCutText] = useState("");
   const [quickSaving, setQuickSaving] = useState(false);
 
-  /** 로컬 카운트(멍/미입력) */
-  const [dazeCounts, setDazeCounts] = useState<CountMap>(() => readCounts(LS_DAZE));
+  /** 로컬 카운트: 미입력만 클라이언트에서 계산/보관 */
   const [missCounts, setMissCounts] = useState<CountMap>(() => readCounts(LS_MISS));
 
   /** 1초 UI 틱 */
@@ -199,10 +198,10 @@ export default function LoggedInDashboard() {
     }
   }
 
-  /** 기록 존재 여부(좌/중) */
+  /** 기록 존재 여부(좌/중) — 서버의 dazeCount 사용 */
   const hasAnyRecord = (b: BossDto) => {
-    const daze = dazeCounts[b.id] ?? 0;
-    return !!b.lastCutAt || daze > 0;
+    const serverDaze = (b as any)?.dazeCount ?? 0;
+    return !!b.lastCutAt || serverDaze > 0;
   };
 
   /** 최근 컷 타임라인 id 조회(보스명) */
@@ -389,7 +388,6 @@ export default function LoggedInDashboard() {
         try { 
           for (const x of toWarnMissed) {
             try {
-              // ⬇️ 보스 이름을 넣어서 읽어주기
               await speakKorean(`${x.name} 처리하지 않으면 미입력 보스로 이동합니다.`);
             } catch {
               await playBeep(300);
@@ -465,61 +463,164 @@ export default function LoggedInDashboard() {
     return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   }
 
-  /** 작은 직사각 타일(공용) */
-  function renderTile(b: BossDto) {
-    const remain = remainingMsFor(b);
-    const hms = fmtHMS(remain);
+function LocationHover({ text, className = "" }: { text?: string | null; className?: string }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ x: -9999, y: -9999 }); // 초기엔 화면 밖
+  const rafRef = useRef<number | null>(null);
 
-    // 유예 중 여부
-    const overdueUntil = overdueUntilRef.current.get(b.id);
-    const isOverKeep = !!overdueUntil && Date.now() < overdueUntil;
+  const updatePos = useCallback((x: number, y: number) => {
+    const off = 12; // 커서에서 약간 우하단
+    const maxX = Math.max(0, window.innerWidth - 16);
+    const maxY = Math.max(0, window.innerHeight - 16);
+    const nx = Math.min(x + off, maxX);
+    const ny = Math.min(y + off, maxY);
 
-    // 5분 이내(남음) 또는 지남 ⇒ 깜빡임
-    const isSoon = remain > 0 && remain <= HIGHLIGHT_MS && !isOverKeep;
-    const shouldBlink = isSoon || remain < 0 || isOverKeep;
+    if (rafRef.current == null) {
+      rafRef.current = requestAnimationFrame(() => {
+        setPos({ x: nx, y: ny });
+        rafRef.current = null;
+      });
+    }
+  }, []);
 
-    const blinkCls = shouldBlink
-      ? "animate-blink border-2 border-rose-500 bg-rose-50"
-      : "border border-slate-200 bg-white";
+  const handleMove = useCallback((e: MouseEvent) => {
+    updatePos(e.clientX, e.clientY);
+  }, [updatePos]);
 
-    const canDaze = !!b.isRandom;
+  const onEnter = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    setOpen(true);
+    updatePos(e.clientX, e.clientY);                // 진입 즉시 위치 지정(0,0 점프 방지)
+    window.addEventListener("mousemove", handleMove);
+  }, [handleMove, updatePos]);
 
-    return (
-      <div
-        key={b.id}
-        className={`rounded-xl shadow-sm p-3 text-sm flex flex-col justify-between h-24 ${blinkCls}`}
-        title={b.location || ""}
+  const onLeave = useCallback(() => {
+    setOpen(false);
+    window.removeEventListener("mousemove", handleMove);
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+  }, [handleMove]);
+
+  useEffect(() => {
+    return () => { // 언마운트 안전 해제
+      window.removeEventListener("mousemove", handleMove);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [handleMove]);
+
+  return (
+    <>
+      <button
+        type="button"
+        onMouseEnter={onEnter}
+        onMouseLeave={onLeave}
+        className={`pointer-events-auto w-full rounded-md border text-[10px] leading-none
+                    px-2 py-[3px] bg-white/80 text-slate-600 shadow-sm hover:bg-white ${className}`}
+        // ⛔ title 제거(네이티브 까만 툴팁 방지)
+        aria-label="젠 위치 보기"
       >
-        <div className="font-medium truncate">{b.name}</div>
+        위치
+      </button>
 
-        <div className="text-xs text-slate-600">
-          {hms == null ? "미입력" : remain >= 0 ? `${hms} 뒤 젠` : `${hms} 지남`}
+      {open && !!text && (
+        <div
+          className="fixed z-[9999] pointer-events-none max-w-[60vw]
+                     rounded-md border bg-white/95 px-2 py-1 text-[12px] text-slate-700
+                     shadow-lg backdrop-blur-sm whitespace-pre-wrap break-keep"
+          style={{ top: pos.y, left: pos.x }}
+          role="tooltip"
+        >
+          {text}
         </div>
+      )}
+    </>
+  );
+}
 
-        <div className="flex items-center gap-2 mt-2">
+function renderTile(b: BossDto, list: "left" | "middle" = "left") {
+  const remain = remainingMsFor(b);
+  const hms = fmtHMS(remain);
+
+  const isSoon = remain > 0 && remain <= HIGHLIGHT_MS;
+  const shouldBlink = isSoon || remain < 0;
+
+  const blinkCls = shouldBlink
+    ? "animate-blink border-2 border-rose-500 bg-rose-50"
+    : "border border-slate-200 bg-white";
+
+  const canDaze = !!b.isRandom;
+  const dazeCount = Number((b as any)?.dazeCount ?? 0);
+  const missCount = list === "middle" ? (missCounts[b.id] ?? 0) : 0;
+
+  const afterLabel = remain < 0 ? "지남" : (list === "middle" ? "뒤 예상" : "뒤 젠");
+
+  return (
+    <div key={b.id} className={`relative rounded-xl shadow-sm p-3 text-sm ${blinkCls}`}>
+      {/* 우측 상단 작은 뱃지 (이름과 겹쳐도 됨) */}
+      <div className="pointer-events-none absolute top-1 right-1 z-10 flex flex-col items-end gap-[2px]">
+        {dazeCount > 0 && (
+          <span className="rounded-[6px] border border-amber-300 bg-amber-50/90 px-1.5 py-[1px] text-[10px] leading-none font-medium text-amber-700">
+            멍 {dazeCount}
+          </span>
+        )}
+        {missCount > 0 && list === "middle" && (
+          <span className="rounded-[6px] border border-sky-300 bg-sky-50/90 px-1.5 py-[1px] text-[10px] leading-none font-medium text-sky-700">
+            미입력 {missCount}
+          </span>
+        )}
+      </div>
+
+      {/* 1) 보스명 — 개행/생략 없음, 필요시 뱃지 위로 겹쳐서 전부 노출 */}
+      <div className="relative z-20 font-medium text-[13px] leading-tight tracking-tight whitespace-nowrap">
+        {b.name}
+      </div>
+
+      {/* 2) 타이머 — 개행 금지 */}
+      <div className="text-xs text-slate-600 whitespace-nowrap">
+        {hms == null ? (
+          "미입력"
+        ) : (
+          <>
+            {hms}
+            <span className="ml-1">{afterLabel}</span>
+          </>
+        )}
+      </div>
+
+      {/* 3) 컷/멍 버튼 (간격 작게) */}
+      <div className="mt-1 grid grid-cols-[auto_1fr_auto] items-center gap-1 pr-1">
+        <button
+          type="button"
+          onClick={() => instantCut(b)}
+          className="col-start-1 px-3 py-1.5 rounded-md text-xs text-white bg-slate-900 hover:opacity-90"
+          aria-label="지금 시간으로 즉시 컷"
+        >
+          컷
+        </button>
+
+        <div className="col-start-2" />
+
+        {canDaze ? (
           <button
             type="button"
-            onClick={() => instantCut(b)}
-            className="px-3 py-1.5 rounded-md text-xs text-white bg-slate-900 hover:opacity-90"
-            title="지금 시간으로 즉시 컷"
+            onClick={() => addDaze(b)}
+            className="col-start-3 px-3 py-1.5 rounded-md text-xs border text-slate-700 hover:bg-slate-50"
+            aria-label="멍 +1"
           >
-            컷
+            멍
           </button>
+        ) : (
+          <span className="col-start-3 px-3 py-1.5 rounded-md text-xs border opacity-0 select-none">멍</span>
+        )}
 
-          {canDaze && (
-            <button
-              type="button"
-              onClick={() => addDaze(b)}
-              className="px-3 py-1.5 rounded-md text-xs border text-slate-700 hover:bg-slate-50"
-              title="멍 +1"
-            >
-              멍
-            </button>
-          )}
-        </div>
+        {/* 4) 위치 보기 — 한 줄 전체, 얇게 (LocationHover는 기존 것 사용) */}
+        {b.location && (
+          <div className="col-span-3 pt-1">
+            <LocationHover text={b.location} />
+          </div>
+        )}
       </div>
-    );
-  }
+    </div>
+  );
+}
 
   /** 리스트를 '곧(≤5분)'과 나머지로 분리 (작은 타일만 사용) */
   function splitSoonWithin5m(list: BossDto[]) {
@@ -553,7 +654,7 @@ export default function LoggedInDashboard() {
       .filter(({ b }) => (missCounts[b.id] ?? 0) === 0 && hasAnyRecord(b))
       .sort((a, z) => a.key - z.key)
       .map(({ b }) => b);
-  }, [filteredAll, missCounts, dazeCounts, uiTick]);
+  }, [filteredAll, missCounts, uiTick]);
 
   /** 중앙(미입력) — 지남 보스는 항상 최상단 + 깜빡임 유지 */
   const middleTracked = useMemo(() => {
@@ -578,7 +679,7 @@ export default function LoggedInDashboard() {
       })
       .sort((a, z) => a.sortKey - z.sortKey)
       .map(({ b }) => b);
-  }, [filteredAll, missCounts, dazeCounts, uiTick]);
+  }, [filteredAll, missCounts, uiTick]);
 
   /** ───────── 우측: 고정 보스(05시 기준 사이클) ───────── */
 
@@ -647,17 +748,11 @@ export default function LoggedInDashboard() {
       const isBlue = caught || postLast || afterGrace;
 
       // 그룹 결정
-      // 0: 지남<=0 && 유예중(빨강 최상단 고정)
-      // 1: 그 외 '대기/곧'(정상 정렬 — 남은 시간 오름차순)
-      // 2: 파랑(잡힘/지남5분초과/00~05시) — 맨 아래
       let group = 1;
       if (overdueKeep) group = 0;
       else if (isBlue) group = 2;
 
       // 정렬 키
-      // group 0: 지남 절댓값 작을수록 위 (방금 지난게 조금 더 위). 음수 사용해서 항상 최상단 유지
-      // group 1: 남은 시간 오름차순
-      // group 2: 발생시각(오름차순) — 맨 아래 묶음 내부 정렬
       let key: number;
       if (group === 0) key = Math.abs(remain);
       else if (group === 1) key = Number.isFinite(remain) ? remain : Number.POSITIVE_INFINITY;
@@ -668,7 +763,6 @@ export default function LoggedInDashboard() {
 
     rows.sort((a, b) => {
       if (a.group !== b.group) return a.group - b.group;
-      // id === "18"은 항상 맨 아래(요구 유지)
       if (a.f.id === "18" && b.f.id !== "18") return 1;
       if (b.f.id === "18" && a.f.id !== "18") return -1;
       return a.key - b.key;
@@ -792,15 +886,10 @@ export default function LoggedInDashboard() {
         participants: [],
       });
 
-      // 컷 → miss/daze 리셋 + 유예 해제
+      // 컷 → miss 리셋 + 유예 해제(멍 카운트는 새 타임라인 생성으로 서버에서 0)
       setMissCounts((prev) => {
         const next = { ...prev, [parsed.boss!.id]: 0 };
         writeCounts(LS_MISS, next);
-        return next;
-      });
-      setDazeCounts((prev) => {
-        const next = { ...prev, [parsed.boss!.id]: 0 };
-        writeCounts(LS_DAZE, next);
         return next;
       });
       overdueUntilRef.current.delete(parsed.boss.id);
@@ -831,11 +920,6 @@ export default function LoggedInDashboard() {
         writeCounts(LS_MISS, next);
         return next;
       });
-      setDazeCounts((prev) => {
-        const next = { ...prev, [b.id]: 0 };
-        writeCounts(LS_DAZE, next);
-        return next;
-      });
       overdueUntilRef.current.delete(b.id);
       missedWarnSetRef.current.delete(b.id);
       lastMissMarkedRef.current.delete(b.id);
@@ -846,60 +930,30 @@ export default function LoggedInDashboard() {
     }
   }
 
-  /** 좌/중: 멍(+1) */
+  /** 좌/중: 멍(+1) — 서버 성공 후에만 로컬 상태 정리 */
   async function addDaze(b: BossDto) {
-    const prevDaze = dazeCounts[b.id] ?? 0;
-    const prevMiss = missCounts[b.id] ?? 0;
-
-    // 낙관적 반영
-    setDazeCounts((prev) => {
-      const next = { ...prev, [b.id]: prevDaze + 1 };
-      writeCounts(LS_DAZE, next);
-      return next;
-    });
-    setMissCounts((prev) => {
-      const next = { ...prev, [b.id]: 0 };
-      writeCounts(LS_MISS, next);
-      return next;
-    });
-    overdueUntilRef.current.delete(b.id);
-    missedWarnSetRef.current.delete(b.id);
-    lastMissMarkedRef.current.delete(b.id);
-    writeOverdueMap(overdueUntilRef.current);
-
-    // 서버 기록
-    const timelineId = await getTimelineIdForBossName(b.name);
-    if (!timelineId) {
-      // 롤백
-      setDazeCounts((prev) => {
-        const next = { ...prev, [b.id]: prevDaze };
-        writeCounts(LS_DAZE, next);
-        return next;
-      });
-      setMissCounts((prev) => {
-        const next = { ...prev, [b.id]: prevMiss };
-        writeCounts(LS_MISS, next);
-        return next;
-      });
-      alert("해당 보스의 최근 컷 타임라인을 찾을 수 없습니다.");
-      return;
-    }
-
-    const url = `/v1/boss-timelines/${timelineId}/daze`;
     try {
-      await postJSON(url, { atIso: new Date().toISOString() });
-    } catch {
-      // 롤백
-      setDazeCounts((prev) => {
-        const next = { ...prev, [b.id]: prevDaze };
-        writeCounts(LS_DAZE, next);
-        return next;
-      });
+      const timelineId = await getTimelineIdForBossName(b.name);
+      if (!timelineId) {
+        alert("해당 보스의 최근 컷 타임라인을 찾을 수 없습니다.");
+        return;
+      }
+      await postJSON(`/v1/boss-timelines/${timelineId}/daze`, { atIso: new Date().toISOString() });
+
+      // 멍 처리되면 미입력 카운트/유예는 초기화
       setMissCounts((prev) => {
-        const next = { ...prev, [b.id]: prevMiss };
+        const next = { ...prev, [b.id]: 0 };
         writeCounts(LS_MISS, next);
         return next;
       });
+      overdueUntilRef.current.delete(b.id);
+      missedWarnSetRef.current.delete(b.id);
+      lastMissMarkedRef.current.delete(b.id);
+      writeOverdueMap(overdueUntilRef.current);
+
+      // 서버에서 최신 dazeCount(=최근 타임라인 noGenCount)가 반영된 목록 재로드
+      await loadBosses();
+    } catch {
       alert("멍 기록에 실패했습니다. 잠시 후 다시 시도해 주세요.");
     }
   }
@@ -981,7 +1035,7 @@ export default function LoggedInDashboard() {
                 const merged = [...soon, ...rest]; // 한 그리드에 합치기
                 return (
                   <div className="grid grid-cols-3 gap-3">
-                    {merged.map((b) => renderTile(b))}
+                    {merged.map((b) => renderTile(b, "left"))}
                   </div>
                 );
               })()
@@ -996,7 +1050,7 @@ export default function LoggedInDashboard() {
             {query ? <span className="ml-2 text-xs text-slate-400">({middleTracked.length}개)</span> : null}
           </h2>
 
-          <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="flex-1 min-h-0 overflow-y-auto">
             {loading ? (
               <div className="h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-500">불러오는 중…</div>
             ) : middleTracked.length === 0 ? (
@@ -1009,7 +1063,7 @@ export default function LoggedInDashboard() {
                 const merged = [...soon, ...rest];
                 return (
                   <div className="grid grid-cols-3 gap-3">
-                    {merged.map((b) => renderTile(b))}
+                    {merged.map((b) => renderTile(b, "middle"))}
                   </div>
                 );
               })()
@@ -1065,11 +1119,6 @@ export default function LoggedInDashboard() {
                     <div className="mt-1 text-xs text-slate-600">
                       젠 시각: <span className="font-semibold">{fmtDaily(fb.genTime)}</span>
                     </div>
-                    {/* 상태 텍스트(선택): 필요하면 아래 주석 해제
-                    <div className="mt-1 text-[11px] text-slate-500">
-                      {soon ? "곧 젠" : overdueKeep ? "지남(유예중)" : isBlue ? "완료/대기" : "대기"}
-                    </div>
-                    */}
                   </div>
                 );
               })

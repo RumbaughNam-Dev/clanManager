@@ -30,16 +30,19 @@ export type BossDto = {
   id: string;
   name: string;
   location: string;
-  respawn: number;
+  respawn: number;             // 분 단위
   isRandom: boolean;
-  lastCutAt: string | null;
-  nextSpawnAt: string | null;
+  lastCutAt: string | null;    // ISO
+  nextSpawnAt: string | null;  // ISO (다음 젠)
   overdue: boolean;
+
+  // ⬇️ 서버가 제공 (클랜별 멍 누계)
+  dazeCount: number;
 };
 
 export type ListBossesResp = {
   ok: true;
-  serverTime: string;
+  serverTime: string;   // ISO
   tracked: BossDto[];
   forgotten: BossDto[];
 };
