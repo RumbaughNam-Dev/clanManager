@@ -388,67 +388,89 @@ export default function LoggedInDashboard() {
   }
 
   /** 좌/중 렌더 보조 */
-  function LocationHover({ text }: { text?: string | null }) {
-    const [open, setOpen] = useState(false);
-    const [pos, setPos] = useState({ x: -9999, y: -9999 });
-    const rafRef = useRef<number | null>(null);
+function LocationHover({ text }: { text?: string | null }) {
+  const btnRef = useRef<HTMLButtonElement | null>(null);
+  const tipIdRef = useRef("boss-loc-tip-" + Math.random().toString(36).slice(2));
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number }>({ top: -9999, left: -9999 });
 
-    const updatePos = useCallback((x: number, y: number) => {
-      const off = 12;
-      const nx = Math.min(x + off, window.innerWidth - 16);
-      const ny = Math.min(y + off, window.innerHeight - 16);
-      if (!rafRef.current) {
-        rafRef.current = requestAnimationFrame(() => {
-          setPos({ x: nx, y: ny });
-          rafRef.current = null;
-        });
-      }
-    }, []);
+  const placeTooltip = useCallback(() => {
+    const el = btnRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const gap = 8;
+    let top = rect.top - 8;          // 버튼 위쪽에
+    let left = rect.right + gap;     // 오른쪽 바깥
+    // 화면 밖 방지
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const TIP_W = 200; // 대략치 (필요시 조정)
+    if (left > vw - TIP_W) left = rect.left - gap - TIP_W; // 좌측으로 뒤집기
+    if (top < 8) top = rect.bottom + gap;                   // 아래로
+    setPos({ top, left });
+  }, []);
 
-    const handleMove = useCallback((e: MouseEvent) => updatePos(e.clientX, e.clientY), [updatePos]);
+  const openTooltip = useCallback(() => {
+    if (!text) return;
+    placeTooltip();
+    setOpen(true);
+  }, [placeTooltip, text]);
 
-    const onEnter = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
-      setOpen(true);
-      updatePos(e.clientX, e.clientY);
-      window.addEventListener("mousemove", handleMove);
-    }, [handleMove, updatePos]);
+  const closeTooltip = useCallback(() => setOpen(false), []);
 
-    const onLeave = useCallback(() => {
-      setOpen(false);
-      window.removeEventListener("mousemove", handleMove);
-      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
-    }, [handleMove]);
+  const onBtnEnter = useCallback(() => {
+    openTooltip();
+  }, [openTooltip]);
 
-    useEffect(() => {
-      return () => {
-        window.removeEventListener("mousemove", handleMove);
-        if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      };
-    }, [handleMove]);
+  const onBtnLeave = useCallback((e: React.MouseEvent) => {
+    const to = e.relatedTarget as Node | null;
+    const tip = document.getElementById(tipIdRef.current);
+    if (tip && to && tip.contains(to)) return; // 툴팁으로 이동 시 닫지 않음
+    closeTooltip();
+  }, [closeTooltip]);
 
-    return (
-      <>
-        <button
-          type="button"
-          onMouseEnter={onEnter}
-          onMouseLeave={onLeave}
-          className="pointer-events-auto w-full rounded-md border text-[10px] leading-none px-2 py-[3px] bg-white/80 text-slate-600 shadow-sm hover:bg-white"
+  // 툴팁에서 hover 유지: 버튼에서 벗어나도 닫히지 않음
+  const onTipEnter = useCallback(() => setOpen(true), []);
+  const onTipLeave = useCallback(() => setOpen(false), []);
+
+  useEffect(() => {
+    if (!open) return;
+    const onScrollOrResize = () => placeTooltip();
+    window.addEventListener("scroll", onScrollOrResize, true);
+    window.addEventListener("resize", onScrollOrResize);
+    return () => {
+      window.removeEventListener("scroll", onScrollOrResize, true);
+      window.removeEventListener("resize", onScrollOrResize);
+    };
+  }, [open, placeTooltip]);
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        onMouseEnter={onBtnEnter}
+        onMouseLeave={onBtnLeave}
+        className="pointer-events-auto w-full rounded-md border text-[10px] leading-none px-2 py-[3px] bg-white/80 text-slate-600 shadow-sm hover:bg-white relative z-[70]"
+      >
+        보스 젠 위치
+      </button>
+
+      {open && !!text && (
+        <div
+          id={tipIdRef.current}
+          onMouseEnter={onTipEnter}
+          onMouseLeave={onTipLeave}
+          className="fixed z-[100000] pointer-events-auto max-w-[60vw]
+                     rounded-md border bg-white/95 px-2 py-1 text-[12px] text-slate-700
+                     shadow-lg backdrop-blur-sm whitespace-pre-wrap break-keep"
+          style={{ top: pos.top, left: pos.left, width: 200 }}
         >
-          보스 젠 위치
-        </button>
-        {open && !!text && (
-          <div
-            className="fixed z-[9999] pointer-events-none max-w-[60vw]
-                       rounded-md border bg-white/95 px-2 py-1 text-[12px] text-slate-700
-                       shadow-lg backdrop-blur-sm whitespace-pre-wrap break-keep"
-            style={{ top: pos.y, left: pos.x }}
-          >
-            {text}
-          </div>
-        )}
-      </>
-    );
-  }
+          {text}
+        </div>
+      )}
+    </>
+  );
+}
 
   function renderTile(b: BossDto, list: "left" | "middle" = "left") {
     const remain = remainingMsFor(b);
@@ -473,16 +495,13 @@ export default function LoggedInDashboard() {
         : (list === "middle" ? "뒤 예상" : "뒤 젠");
 
     return (
-      <div key={b.id} className={`relative overflow-visible z-10 rounded-xl shadow-sm p-3 text-sm ${blinkCls}`}>
+      <div
+        key={b.id}
+        className={`relative overflow-visible z-[40] hover:z-[90] rounded-xl shadow-sm p-3 text-sm ${blinkCls}`}
+      >
         {/* 배지(미입력/멍) — 우측 상단 테두리 겹치기 (가로 4/5, 세로 1/3 지점) */}
         {((missCount > 0 && list === "middle") || dazeCount > 0) && (
-          <div className="
-            absolute top-0 right-0
-            translate-x-1/4 -translate-y-1/4
-            inline-flex flex-row flex-nowrap whitespace-nowrap
-            items-center gap-2
-            pointer-events-none z-30 scale-75
-          ">
+          <div className="absolute top-0 right-0 translate-x-1/4 -translate-y-1/4 inline-flex flex-row flex-nowrap whitespace-nowrap items-center gap-2 pointer-events-none z-[95] scale-75">
             {/* 미입력 뱃지 */}
             {missCount > 0 && list === "middle" && (
               <span className="rounded-[8px] border border-sky-300 bg-sky-50/95 px-2 py-0.5 text-[11px] font-semibold text-sky-700 shadow-md">
@@ -880,9 +899,9 @@ export default function LoggedInDashboard() {
       </div>
 
       {/* 본문 3컬럼 */}
-      <div className="min-h-0 overflow-hidden grid grid-cols-3 gap-4">
+      <div className="min-h-0 overflow-x-visible overflow-y-hidden grid grid-cols-3 gap-4">
         {/* 좌측: 진행중(비고정) */}
-        <section className="col-span-1 min-h-0 overflow-y-auto px-1">
+        <section className="col-span-1 min-h-0 overflow-y-auto px-1 relative z-0">
           <h2 className="text-base font-semibold mb-2 text-slate-700">
             진행중 보스타임
             {query ? <span className="ml-2 text-xs text-slate-400">({leftTracked.length}개)</span> : null}
@@ -900,7 +919,7 @@ export default function LoggedInDashboard() {
                 const { soon, rest } = splitSoonWithin5m(leftTracked);
                 const merged = [...soon, ...rest]; // 한 그리드에 합치기
                 return (
-                  <div className="grid grid-cols-3 gap-3 pt-3">
+                  <div className="grid grid-cols-3 gap-3 pt-3 isolate">
                     {merged.map((b) => renderTile(b, "left"))}
                   </div>
                 );
@@ -910,7 +929,7 @@ export default function LoggedInDashboard() {
         </section>
 
         {/* 중앙: 미입력(비고정) */}
-        <section className="col-span-1 h-full min-h-0 flex flex-col px-1">
+        <section className="col-span-1 min-h-0 overflow-y-auto px-1 relative z-0">
           <h2 className="text-base font-semibold mb-2 text-slate-700">
             미입력된 보스
             {query ? <span className="ml-2 text-xs text-slate-400">({middleTracked.length}개)</span> : null}
@@ -938,7 +957,7 @@ export default function LoggedInDashboard() {
         </section>
 
         {/* 우측: 고정 보스(05시 리셋, 00:00 이후 전부 파랑) */}
-        <section className="col-span-1 min-h-0 overflow-y-auto px-1">
+        <section className="col-span-1 min-h-0 overflow-y-auto px-1 relative z-0">
           <h2 className="text-base font-semibold mb-2 text-slate-700">고정 보스</h2>
           <div className="space-y-3">
             {loading ? (
