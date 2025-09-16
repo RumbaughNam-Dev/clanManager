@@ -26,7 +26,7 @@ type FixedBossDto = {
   id: string;
   name: string;
   location: string;
-  genTime: number | null;   // 0~1439 (HH*60+mm)
+  genTime: number | null;
   respawn: number;
   isRandom: boolean;
   lastCutAt: string | null;
@@ -43,20 +43,15 @@ function fmtMMSS2(ms: number) {
   const s = pos % 60;
   return `${m}:${String(s).padStart(2, "0")}`;
 }
-
-/** 남은/지남 시간을 H:MM:SS 형태로 포맷 (양수=ceil, 음수=floor) */
 function fmtHMS(ms: number): string | null {
   if (!Number.isFinite(ms)) return null;
-  const negative = ms < 0;
   const t = Math.abs(ms);
-  const totalSec = negative ? Math.floor(t / 1000) : Math.ceil(t / 1000);
+  const totalSec = ms < 0 ? Math.floor(t / 1000) : Math.ceil(t / 1000);
   const h = Math.floor(totalSec / 3600);
   const m = Math.floor((totalSec % 3600) / 60);
   const s = totalSec % 60;
   return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
-
-// 분(0~1439) → "HH:mm"
 function fmtDaily(genTime: unknown) {
   const n = genTime == null ? NaN : Number(genTime);
   if (!Number.isFinite(n)) return "—";
@@ -73,11 +68,8 @@ export default function LoggedInDashboard() {
   const [forgottenRaw, setForgottenRaw] = useState<BossDto[]>([]);
   const [fixedRaw, setFixedRaw] = useState<FixedBossDto[]>([]);
   const [loading, setLoading] = useState(true);
-
-  /** 검색어(좌/중만 대상) */
   const [query, setQuery] = useState("");
 
-  /** 음성 알림 토글 */
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(() => {
     try {
       const v = localStorage.getItem("voiceEnabled");
@@ -92,33 +84,27 @@ export default function LoggedInDashboard() {
     } catch {}
   }, [voiceEnabled]);
 
-  /** 간편 컷 입력(좌/중용) */
   const [quickCutText, setQuickCutText] = useState("");
   const [quickSaving, setQuickSaving] = useState(false);
-
-  /** 1초 UI 틱 */
   const [uiTick, setUiTick] = useState(0);
+
   useEffect(() => {
     const t = setInterval(() => setUiTick((x) => (x + 1) % 3600), 1000);
     return () => clearInterval(t);
   }, []);
 
-  /** 1분 폴링 */
   useEffect(() => {
     loadBosses();
     const t = setInterval(() => loadBosses(), 60_000);
     return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** refs (비고정/공통) */
   const lastNextSpawnRef = useRef<Map<string, number>>(new Map());
   const missedWarnSetRef = useRef<Set<string>>(new Set());
   const timelineIdCacheRef = useRef<Map<string, string>>(new Map());
 
-  /** 고정 보스 음성 알림 상태 (게임일 단위 리셋) */
   const fixedAlertedMapRef = useRef<Map<string, Set<number>>>(new Map());
-  const fixedCycleStartRef = useRef<number>(0); // 현재 게임일 시작 ms(05:00 기준)
+  const fixedCycleStartRef = useRef<number>(0);
 
   // 고정 보스: 이번 발생까지 남은(ms) — (음수면 지남)
   function fixedRemainMs(f: FixedBossDto, nowMs = Date.now()) {
@@ -141,17 +127,13 @@ export default function LoggedInDashboard() {
         }))
       );
 
-      // 비고정: 서버 nextSpawnAt 최신값 캐시(메모리만)
-      const now = Date.now();
       const prevMap = lastNextSpawnRef.current;
       const nextMap = new Map(prevMap);
-
       for (const b of (data.tracked ?? []) as BossDto[]) {
         const newMs = b.nextSpawnAt ? new Date(b.nextSpawnAt).getTime() : NaN;
         if (Number.isFinite(newMs)) nextMap.set(b.id, newMs as number);
       }
       lastNextSpawnRef.current = nextMap;
-
     } catch {
       setTrackedRaw([]);
       setForgottenRaw([]);
@@ -161,7 +143,6 @@ export default function LoggedInDashboard() {
     }
   }
 
-  /** 기록 존재 여부(좌/중) — 서버의 dazeCount 사용 */
   const hasAnyRecord = (b: BossDto) => {
     const serverDaze = (b as any)?.dazeCount ?? 0;
     return !!b.lastCutAt || serverDaze > 0;
@@ -187,7 +168,6 @@ export default function LoggedInDashboard() {
     }
   }
 
-  /** 비고정 next 계산(좌/중) */
   const { trackedIdSet, forgottenNextMap, allBossesSortedByNext } = useMemo(() => {
     const now = Date.now();
     const trackedIdSet = new Set(trackedRaw.map((b) => b.id));
@@ -229,7 +209,6 @@ export default function LoggedInDashboard() {
     return { trackedIdSet, forgottenNextMap, allBossesSortedByNext };
   }, [trackedRaw, forgottenRaw]);
 
-  // 최신 참조용
   const trackedIdSetRef = useRef<Set<string>>(new Set());
   const forgottenNextMapRef = useRef<Map<string, number>>(new Map());
   useEffect(() => {
@@ -237,7 +216,6 @@ export default function LoggedInDashboard() {
     forgottenNextMapRef.current = new Map(forgottenNextMap);
   }, [trackedIdSet, forgottenNextMap]);
 
-  /** 비고정 next ms */
   const getNextMsGeneric = (b: BossDto) => {
     if (trackedIdSetRef.current.has(b.id)) {
       if (b.nextSpawnAt) {
@@ -249,7 +227,6 @@ export default function LoggedInDashboard() {
     return forgottenNextMapRef.current.get(b.id) ?? Number.POSITIVE_INFINITY;
   };
 
-  /** 검색(좌/중만) */
   const filteredAll = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return allBossesSortedByNext;
@@ -261,37 +238,43 @@ export default function LoggedInDashboard() {
     return allBossesSortedByNext.filter(match);
   }, [query, allBossesSortedByNext]);
 
-  /** ───────── 미입력 계산식 (DB 우선) ─────────
-   * 규칙:
-   *  - 서버 lastCutAt이 있으면 미입력=0 (브라우저 상태와 무관, DB 우선)
-   *  - lastCutAt이 없고 respawn > 0인 비고정 보스: 오늘 00:00을 기준으로 (now - 자정)/respawn 으로 주기 경과 수 산출
-   *  - lastCutAt이 없고 respawn이 없거나 0: 미입력 계산 불가 → 0 처리(목록 존재만 표시)
-   */
+  /** ───────── 수정된 미입력 계산식 ───────── */
   function computeEffectiveMiss(b: BossDto, now = Date.now()): number {
-    if (b.lastCutAt) return 0;
+    if (!b.isRandom) return 0;
+
     const respawnMin = Number(b.respawn ?? 0);
-    if (!b.isRandom || respawnMin <= 0) return 0; // 고정/잘못된 데이터는 미입력 카운트 0
-    const sinceMidnight = (() => {
+    if (respawnMin <= 0) return 0;
+
+    const respawnMs = respawnMin * 60 * 1000;
+
+    if (!b.lastCutAt) {
       const d = new Date(now);
       d.setHours(0, 0, 0, 0);
-      return d.getTime();
-    })();
-    const elapsedMin = (now - sinceMidnight) / 60000;
-    return Math.max(0, Math.floor(elapsedMin / respawnMin));
+      const sinceMidnight = d.getTime();
+      const elapsedMin = (now - sinceMidnight) / 60000;
+      return Math.max(0, Math.floor(elapsedMin / respawnMin));
+    }
+
+    const lastMs = new Date(b.lastCutAt).getTime();
+    if (!Number.isFinite(lastMs) || now <= lastMs) return 0;
+
+    const diff = now - lastMs;
+    if (diff < respawnMs + OVERDUE_GRACE_MS) {
+      return 0;
+    }
+
+    const overdueStart = lastMs + respawnMs + OVERDUE_GRACE_MS;
+    const missed = 1 + Math.floor((now - overdueStart) / respawnMs);
+    return missed;
   }
 
-  /** 비고정: 남은/지남(ms) + 유예(5분) — 로컬스토리지 없이 계산만 */
   const remainingMsFor = (b: BossDto) => {
     const now = Date.now();
     const nextMs = getNextMsGeneric(b);
-
     if (!Number.isFinite(nextMs)) return Number.POSITIVE_INFINITY;
-
     const diff = nextMs - now;
-
-    // 유예: next~next+5분 구간은 음수 시간(지남)으로 카운트다운 표시
     if (diff <= 0 && diff >= -OVERDUE_GRACE_MS) {
-      return diff; // (-)로 내려감
+      return diff;
     }
     return diff;
   };
