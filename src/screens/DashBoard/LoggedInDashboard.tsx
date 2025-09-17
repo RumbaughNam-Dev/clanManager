@@ -129,6 +129,21 @@ export default function LoggedInDashboard() {
     return d.getTime();
   }
 
+  // HH:mm 로 포맷
+  function fmtTimeHM(ms: number | null | undefined): string {
+    if (!Number.isFinite(ms as number)) return "—";
+    const d = new Date(ms as number);
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    return `${hh}:${mm}`;
+  }
+
+  function nextFixedOccMs(genTime: number | null | undefined, nowMs = Date.now()): number | null {
+    const occ = fixedOccMs(genTime, nowMs);
+    if (!Number.isFinite(occ)) return null;
+    return (occ as number) <= nowMs ? (occ as number) + DAY : (occ as number);
+  }
+
   /** 서버 로드 */
   async function loadBosses() {
     setLoading(true);
@@ -902,17 +917,18 @@ function LocationHover({ text }: { text?: string | null }) {
 
   function openShareModal() {
     const lines: string[] = [];
+    const now = Date.now();
 
-    // 비고정 보스(진행중+미입력 모두)
+    // 비고정(랜덤) 보스: getNextMsGeneric(b) 기반
     const normals: BossDto[] = [...trackedRaw, ...forgottenRaw];
     const seen = new Set<string>();
     const bosses = normals.filter(b => (seen.has(b.id) ? false : (seen.add(b.id), true)));
 
     for (const b of bosses) {
-      const remain = remainingMsFor(b);
-      const hms = fmtHMS(remain) ?? "—";
-      const miss = computeEffectiveMiss(b);
-      lines.push(`${hms} ${b.name} (미입력${miss}회)`);
+      const nextMs = getNextMsGeneric(b);                // ▶️ 다음 젠 시각
+      const nextStr = fmtTimeHM(Number.isFinite(nextMs) ? nextMs : null);
+      const miss = computeEffectiveMiss(b);              // 미입력 회수
+      lines.push(`${nextStr} ${b.name} (미입력${miss}회)`);
     }
 
     setShareText(lines.join("\n"));
