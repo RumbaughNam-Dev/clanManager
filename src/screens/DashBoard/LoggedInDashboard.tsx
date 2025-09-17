@@ -19,7 +19,45 @@ const MISSED_WARN_MS = 3 * MIN;
 
 /** 배지 오버레이 위치(카드 기준 비율) */
 const BADGE_LEFT = "80%";      // 폭 4/5 지점
-const BADGE_TOP  = "33.333%";  // 높이 1/3 지점
+const BADGE_TOP  = "33.333%";  // 높이 1/3 지점//
+
+//  ── 초성 검색 유틸 ──
+const CHO = [
+  "ㄱ","ㄲ","ㄴ","ㄷ","ㄸ","ㄹ","ㅁ","ㅂ","ㅃ","ㅅ",
+  "ㅆ","ㅇ","ㅈ","ㅉ","ㅊ","ㅋ","ㅌ","ㅍ","ㅎ",
+];
+const HANGUL_BASE = 0xac00;
+const HANGUL_LAST = 0xd7a3;
+const JUNG = 21;
+const JONG = 28;
+
+// 문자열 → 초성만 추출 (예: "서드 북드" → "ㅅㄷ ㅂㄷ")
+function toChosung(str: string): string {
+  let out = "";
+  for (const ch of str) {
+    const code = ch.charCodeAt(0);
+    if (code >= HANGUL_BASE && code <= HANGUL_LAST) {
+      const idx = code - HANGUL_BASE;
+      const choIdx = Math.floor(idx / (JUNG * JONG));
+      out += CHO[choIdx] ?? ch;
+    } else {
+      // 영문/숫자/기타는 그대로 두거나 공백 유지
+      out += ch;
+    }
+  }
+  return out;
+}
+
+// 토큰이 '초성만'으로 구성됐는지 (ㄱ~ㅎ 범위)
+function isChosungToken(token: string): boolean {
+  if (!token) return false;
+  for (const ch of token) {
+    const c = ch.charCodeAt(0);
+    // ㄱ(0x3131) ~ ㅎ(0x314E)
+    if (c < 0x3131 || c > 0x314e) return false;
+  }
+  return true;
+}
 
 /** ───────── 타입 ───────── */
 type FixedBossDto = {
@@ -259,13 +297,26 @@ export default function LoggedInDashboard() {
   };
 
   const filteredAll = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = query.trim();
     if (!q) return allBossesSortedByNext;
-    const tokens = q.split(/\s+/g);
+    const tokens = q.split(/\s/g).filter(Boolean);
+
     const match = (b: BossDto) => {
-      const hay = `${b.name} ${b.location ?? ""}`.toLowerCase();
-      return tokens.every((t) => hay.includes(t));
+      const hay = `${b.name} ${b.location ?? ""}`;
+      const hayLower = hay.toLowerCase();
+      // 초성 캐시 (보스마다 한 번만 계산)
+      const hayCho = toChosung(hay);
+
+      return tokens.every((t) => {
+        const tLower = t.toLowerCase();
+        // 일반 검색: 부분 문자열
+        if (hayLower.includes(tLower)) return true;
+        // 초성 검색: 토큰이 초성으로만 이루어졌다면, 초성 문자열에서 부분 일치
+        if (isChosungToken(t)) return hayCho.includes(t);
+        return false;
+      });
     };
+
     return allBossesSortedByNext.filter(match);
   }, [query, allBossesSortedByNext]);
 
