@@ -113,6 +113,22 @@ export default function LoggedInDashboard() {
     return occ - nowMs;
   }
 
+  // 보스 시간 초기화 용
+  const [initOpen, setInitOpen] = useState(false);
+  const [initTime, setInitTime] = useState("07:30");
+  const [initBusy, setInitBusy] = useState(false);
+
+  // HH:mm → 오늘 날짜의 ms
+  function parseTodayHHMM(hhmm: string): number | null {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
+    if (!m) return null;
+    const hh = Number(m[1]), mm = Number(m[2]);
+    if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+    const d = new Date();
+    d.setHours(hh, mm, 0, 0);
+    return d.getTime();
+  }
+
   /** 서버 로드 */
   async function loadBosses() {
     setLoading(true);
@@ -335,6 +351,61 @@ export default function LoggedInDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredAll, uiTick, voiceEnabled]);
 
+// 모든 (비고정) 보스를 오늘 입력시각 + 5분으로 컷
+// 그리고 "이력 전무( lastCutAt=null && dazeCount==0 )"였던 보스는 즉시 1회 멍 처리
+async function runInitCutForAll() {
+  if (initBusy) return;
+  const baseMs = parseTodayHHMM(initTime);
+  if (!baseMs) { alert("시간 형식은 HH:mm 입니다. 예) 07:30"); return; }
+
+  const cutAtIso = new Date(baseMs + 5 * 60 * 1000).toISOString(); // +5분
+  const normals: BossDto[] = [...trackedRaw, ...forgottenRaw];
+  // id 중복 제거
+  const seen = new Set<string>();
+  const bosses = normals.filter(b => (seen.has(b.id) ? false : (seen.add(b.id), true)));
+
+  if (bosses.length === 0) { alert("초기화할 보스가 없습니다."); return; }
+
+  if (!confirm(`모든 보스를 오늘 ${initTime} + 5분(${new Date(cutAtIso).toLocaleString()})으로 컷 처리합니다.\n'이력 전무' 보스는 1회 멍까지 자동 처리합니다.`)) return;
+
+  setInitBusy(true);
+  try {
+    // 1) 일괄 컷
+    for (const b of bosses) {
+      try {
+        await postJSON(`/v1/dashboard/bosses/${b.id}/cut`, {
+          cutAtIso,
+          mode: "TREASURY",
+          items: [],
+          participants: [],
+        });
+      } catch (e) {
+        console.warn("[init-cut] failed:", b.name, e);
+      }
+    }
+
+    // 2) '이력 전무' 보스만 1회 멍 (lastCutAt == null && dazeCount == 0 이었던 대상)
+    for (const b of bosses) {
+      const wasNoHistory = !b.lastCutAt && Number((b as any)?.dazeCount ?? 0) === 0;
+      if (!wasNoHistory) continue;
+      try {
+        const timelineId = await getTimelineIdForBossName(b.name);
+        if (timelineId) {
+          await postJSON(`/v1/boss-timelines/${timelineId}/daze`, { atIso: new Date().toISOString() });
+        }
+      } catch (e) {
+        console.warn("[init-daze] failed:", b.name, e);
+      }
+    }
+
+    alert("보스 시간 초기화 완료!");
+    await loadBosses();
+    setInitOpen(false);
+  } finally {
+    setInitBusy(false);
+  }
+}
+
   /** 공통 유틸 */
   function delay(ms: number) { return new Promise((res) => setTimeout(res, ms)); }
   function playBeep(durationMs = 300) {
@@ -483,16 +554,16 @@ function LocationHover({ text }: { text?: string | null }) {
         className={`relative overflow-visible z-[40] hover:z-[90] rounded-xl shadow-sm p-3 text-sm ${blinkCls}`}
       >
         {/* 배지(미입력/멍) — 우측 상단 테두리 겹치기 (가로 4/5, 세로 1/3 지점) */}
-        {((missCount > 0 && list === "middle") || dazeCount > 0) && (
+        {((missCount > 0 && list === "middle") || (dazeCount > 0 && list !== "middle")) && (
           <div className="absolute top-0 right-0 translate-x-1/4 -translate-y-1/4 inline-flex flex-row flex-nowrap whitespace-nowrap items-center gap-2 pointer-events-none z-[95] scale-75">
-            {/* 미입력 뱃지 */}
+            {/* 중앙 리스트: 미입력 뱃지만 표시 */}
             {missCount > 0 && list === "middle" && (
               <span className="rounded-[8px] border border-sky-300 bg-sky-50/95 px-2 py-0.5 text-[11px] font-semibold text-sky-700 shadow-md">
                 미입력 {missCount}
               </span>
             )}
-            {/* 멍 뱃지 */}
-            {dazeCount > 0 && (
+            {/* 좌측/우측 리스트에서만 멍 뱃지 표시 */}
+            {dazeCount > 0 && list !== "middle" && (
               <span className="rounded-[6px] border border-amber-300 bg-amber-50/90 px-1.5 py-[1px] text-[10px] font-medium text-amber-700 shadow">
                 멍 {dazeCount}
               </span>
@@ -826,16 +897,38 @@ function LocationHover({ text }: { text?: string | null }) {
     }
   }
 
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareText, setShareText] = useState("");
+
+  function openShareModal() {
+    const lines: string[] = [];
+
+    // 비고정 보스(진행중+미입력 모두)
+    const normals: BossDto[] = [...trackedRaw, ...forgottenRaw];
+    const seen = new Set<string>();
+    const bosses = normals.filter(b => (seen.has(b.id) ? false : (seen.add(b.id), true)));
+
+    for (const b of bosses) {
+      const remain = remainingMsFor(b);
+      const hms = fmtHMS(remain) ?? "—";
+      const miss = computeEffectiveMiss(b);
+      lines.push(`${hms} ${b.name} (미입력${miss}회)`);
+    }
+
+    setShareText(lines.join("\n"));
+    setShareOpen(true);
+  }
+
   /** JSX */
   return (
     <div className="h-[calc(100dvh-56px)] min-h-0 overflow-hidden grid grid-rows-[auto_1fr] gap-3">
       {/* 상단바 */}
       <div className="flex items-center gap-3 flex-wrap">
         {/* 검색(좌/중만) */}
-        <div className="relative w-full max-w-xl">
+        <div className="relative w-1/5 min-w-[160px]">
           <input
             className="w-full border rounded-xl px-4 py-2 pr-10"
-            placeholder="보스 이름 또는 위치로 검색 (예: 오만6층, 안타, 엘모어)"
+            placeholder="보스 이름/위치 검색"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -852,31 +945,64 @@ function LocationHover({ text }: { text?: string | null }) {
           )}
         </div>
 
+        {/* 칸막이 */}
+        <div className="h-6 border-l mx-2"></div>
+
         {/* 음성 알림 */}
         <label className="flex items-center gap-2 text-sm select-none">
-          <input type="checkbox" checked={voiceEnabled} onChange={(e) => setVoiceEnabled(e.currentTarget.checked)} />
+          <input
+            type="checkbox"
+            checked={voiceEnabled}
+            onChange={(e) => setVoiceEnabled(e.currentTarget.checked)}
+          />
           음성 알림
         </label>
+
+        {/* 칸막이 */}
+        <div className="h-6 border-l mx-2"></div>
 
         {/* 간편 컷 */}
         <div className="flex items-center gap-2">
           <input
-            className="border rounded-xl px-3 py-2 w-[280px]"
-            placeholder="간편 보스 컷: 2200 서드"
+            className="border rounded-xl px-3 py-2 w-[220px]"
+            placeholder="예: 2200 서드"
             value={quickCutText}
             onChange={(e) => setQuickCutText(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") { e.preventDefault(); submitQuickCut(); }
             }}
-            title="형식: 시각 보스이름 (예: 2200 서드 / 22:00 서드 / 930 악마왕)"
           />
           <button
             type="button"
-            className={`px-3 py-2 rounded-xl text-white ${quickSaving ? "bg-gray-300" : "bg-slate-900 hover:opacity-90"}`}
+            className={`px-3 py-2 rounded-xl text-white ${
+              quickSaving ? "bg-gray-300" : "bg-slate-900 hover:opacity-90"
+            }`}
             onClick={submitQuickCut}
             disabled={quickSaving}
           >
             {quickSaving ? "저장 중…" : "간편컷 저장"}
+          </button>
+        </div>
+
+        {/* 칸막이 */}
+        <div className="h-6 border-l mx-2"></div>
+
+        {/* 신규 버튼들 */}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="px-3 py-2 rounded-xl bg-slate-900 text-white hover:opacity-90"
+            onClick={() => setInitOpen(v => !v)}
+            title="모든 보스를 지정 시각(+5분)으로 일괄 컷"
+          >
+            보스 시간 초기화
+          </button>
+          <button
+            type="button"
+            className="px-3 py-2 rounded-xl bg-slate-900 text-white hover:opacity-90"
+            onClick={openShareModal}
+          >
+            디코 보스탐 공유
           </button>
         </div>
       </div>
@@ -994,6 +1120,129 @@ function LocationHover({ text }: { text?: string | null }) {
           </div>
         </section>
       </div>
+
+      {/* ───────────────── 보스 시간 초기화 모달 ───────────────── */}
+      {initOpen && (
+        <div
+          className="fixed inset-0 z-[1000] flex items-center justify-center"
+          aria-modal="true"
+          role="dialog"
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setInitOpen(false);
+          }}
+        >
+          {/* backdrop */}
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setInitOpen(false)}
+          />
+
+          {/* modal card */}
+          <div className="relative z-[1001] w-[90vw] max-w-[420px] rounded-2xl bg-white shadow-xl border p-4">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-base font-semibold">보스 시간 초기화</h3>
+              <button
+                type="button"
+                className="px-2 py-1 rounded hover:bg-slate-100"
+                onClick={() => setInitOpen(false)}
+                aria-label="닫기"
+              >
+                ×
+              </button>
+            </div>
+
+            <p className="text-[12px] text-slate-600 mb-3">
+              입력한 시간의 <b>+ 5분</b>으로 오늘 날짜에 모든 보스를 컷합니다.
+              <br />
+              기존에 <b>컷/멍 이력이 없던 보스</b>는 이번 1회에 한해 자동으로 멍 처리합니다.
+            </p>
+
+            <div className="flex items-center gap-2">
+              <input
+                className="border rounded-xl px-3 py-2 w-[130px] text-center"
+                placeholder="07:30"
+                value={initTime}
+                onChange={(e) => setInitTime(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { e.preventDefault(); runInitCutForAll(); }
+                }}
+              />
+              <button
+                type="button"
+                className="px-3 py-2 rounded-xl bg-slate-900 text-white hover:opacity-90 disabled:opacity-60"
+                onClick={runInitCutForAll}
+                disabled={initBusy}
+              >
+                {initBusy ? "처리 중…" : "시간 초기화"}
+              </button>
+              <button
+                type="button"
+                className="px-3 py-2 rounded-xl border hover:bg-slate-100"
+                onClick={() => setInitOpen(false)}
+              >
+                취소
+              </button>
+            </div>
+
+            <div className="mt-3 text-[11px] text-slate-500">
+              예) 07:30 을 입력하면 오늘 07:35 로 일괄 컷
+            </div>
+          </div>
+        </div>
+      )}
+
+      {shareOpen && (
+        <div
+          className="fixed inset-0 z-[1000] flex items-center justify-center"
+          aria-modal="true"
+          role="dialog"
+        >
+          {/* 배경 */}
+          <div className="absolute inset-0 bg-black/50" onClick={() => setShareOpen(false)} />
+
+          {/* 모달 카드 */}
+          <div className="relative z-[1001] w-[90vw] max-w-[520px] rounded-2xl bg-white shadow-xl border p-4 flex flex-col">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-base font-semibold">디코 보스탐 공유</h3>
+              <button
+                type="button"
+                className="px-2 py-1 rounded hover:bg-slate-100"
+                onClick={() => setShareOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+
+            <textarea
+              className="flex-1 w-full border rounded p-2 text-sm font-mono resize-none"
+              rows={15}
+              readOnly
+              value={shareText}
+            />
+
+            <div className="flex justify-end gap-2 mt-3">
+              <button
+                type="button"
+                className="px-3 py-2 rounded-xl bg-slate-900 text-white hover:opacity-90"
+                onClick={() => {
+                  navigator.clipboard.writeText(shareText).then(() => {
+                    alert("복사 완료!");
+                  });
+                }}
+              >
+                복사
+              </button>
+              <button
+                type="button"
+                className="px-3 py-2 rounded-xl border hover:bg-slate-100"
+                onClick={() => setShareOpen(false)}
+              >
+                닫기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

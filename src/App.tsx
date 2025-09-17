@@ -28,6 +28,17 @@ export default function App() {
     }
   }, [user, page]);
 
+  // 🔒 대시보드에서만 body 스크롤 잠그고, 다른 페이지에선 자동 해제
+  useEffect(() => {
+    const cls = "body-lock";
+    if (page === "dashboard") {
+      document.body.classList.add(cls);
+    } else {
+      document.body.classList.remove(cls);
+    }
+    return () => { document.body.classList.remove(cls); };
+  }, [page]);
+
   const roleLabel = (r?: string | null) => {
     switch (r) {
       case "SUPERADMIN":

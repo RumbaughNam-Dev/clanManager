@@ -6,7 +6,15 @@
 html, body, #root { height: 100%; }
 body { @apply bg-slate-50 text-slate-900; }
 
-html, body {
-  overflow: hidden;           /* 🔒 바깥쪽 스크롤 제거 */
-  overscroll-behavior: none;  /* (선택) 바운스/당김 방지 */
-}
+ /* 기본은 스크롤 허용(대부분 페이지) */
+ html, body {
+   overflow: auto;
+   overscroll-behavior: auto;
+ }
+
+ /* 대시보드에서만 body에 붙여서 스크롤 잠그는 클래스 */
+ .body-lock {
+   overflow: hidden;
+   overscroll-behavior: none;
+   height: 100dvh; /* 모바일 브라우저에서 높이 고정 */
+ }
