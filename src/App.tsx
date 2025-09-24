@@ -12,6 +12,7 @@ import Signup from "./screens/Auth/Signup";
 import AdminClanRequests from "./screens/SuperAdmin/AdminClanRequests";
 import AdminBossCycle from "./screens/SuperAdmin/AdminBossCycle";
 import ResponsiveDashboard from "./screens/DashBoard/ResponsiveDashboard";
+import DashboardCombined from "./screens/DashboardCombined";
 
 export default function App() {
   const [page, setPage] = useState<PageKey>("dashboard");
@@ -146,7 +147,7 @@ export default function App() {
       </header>
 
       <main className="max-w-6xl mx-auto px-5 py-6 space-y-6">
-        {page === "dashboard" && <ResponsiveDashboard />}
+        {page === "dashboard" && <DashboardCombined />}
         {page === "members" && <Members />}
         {page === "timelineList" && <TimelineList />}
         {page === "timelineDetail" && <TimelineDetail role={effectiveRole} />}

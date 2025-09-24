@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import Modal from "../common/Modal";
 import { postJSON } from "@/lib/http";
 import { useAuth } from "@/contexts/AuthContext";
+import CutModal from "@/screens/DashBoard/CutModal";
 
 type LootItemDto = {
   id: string;
@@ -26,6 +27,7 @@ type DistributionDto = {
 type DetailResp = {
   ok: true;
   item: {
+    bossMetaId: string | null;
     id: string;
     bossName: string;
     cutAt: string;       // ISO
@@ -55,6 +57,22 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
   const [savingItemId, setSavingItemId] = useState<string | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
+  const [showCutModal, setShowCutModal] = useState(false);
+
+  useEffect(() => {
+    // data가 null일 수 있으므로 안전 검사 추가
+    if (!open) return;
+    if (data == null) {
+      // 아직 로드 안 된 상태면 디폴트 동작: 모달 닫음(또는 열지 않음)
+      setShowCutModal(false);
+      return;
+    }
+    if (data.items.length === 0 && data.distributions.length === 0) {
+      setShowCutModal(true);
+    } else {
+      setShowCutModal(false);
+    }
+  }, [open, data]);
 
   function fmtAbs(s?: string | null) {
     if (!s) return "—";
@@ -128,7 +146,21 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, timelineId]);
 
-  if (!open) return null;
+  if (data && data.items.length === 0 && data.distributions.length === 0) {
+    return (
+      <CutModal
+        open={showCutModal}
+        boss={{ id: data.bossMetaId!, name: data.bossName }}
+        onClose={() => setShowCutModal(false)}
+        onSaved={() => {
+          setShowCutModal(false);
+          reloadDetail();
+          onSaved?.();
+        }}
+        defaultCutAt={data.cutAt ?? formatLocalDateTime(new Date())}
+      />
+    );
+  }
 
   const isTreasuryItem = (it: LootItemDto) => (it.isTreasury ?? it.toTreasury) === true;
 
@@ -240,6 +272,23 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
     const done = (data?.distributions ?? []).filter(d => d.lootItemId === itemId && d.isPaid).length;
     if (total === 0) return "분배 대상 없음";
     return `${total}명 중 ${done}명 분배완료`;
+  }
+
+  function formatLocalDateTime(d: Date) {
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return (
+      d.getFullYear() +
+      "-" +
+      pad(d.getMonth() + 1) +
+      "-" +
+      pad(d.getDate()) +
+      " " +
+      pad(d.getHours()) +
+      ":" +
+      pad(d.getMinutes()) +
+      ":" +
+      pad(d.getSeconds())
+    );
   }
 
   return (
@@ -500,6 +549,17 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
           </div>
         )}
       </div>
+      <CutModal
+        open={showCutModal}
+        boss={data ? { id: data.bossMetaId ?? "", name: data.bossName } : null}
+        onClose={() => setShowCutModal(false)}
+        onSaved={() => {
+          setShowCutModal(false);
+          reloadDetail();
+          onSaved?.();
+        }}
+        defaultCutAt={data?.cutAt ?? formatLocalDateTime(new Date())}
+      />
     </Modal>
   );
 }

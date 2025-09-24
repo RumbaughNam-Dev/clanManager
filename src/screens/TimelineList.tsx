@@ -38,6 +38,8 @@ type ListResp = {
   items: TimelineDto[];
 };
 
+type TimelineItem = { id: string; bossName: string; cutAt: string; createdBy: string; imageIds: string[]; noGenCount: number; items: any[]; distributions: any[]; };
+
 type StatusFilter = "ALL" | "NOT_SOLD" | "SOLD" | "PAID" | "TREASURY";
 
 function fmt(dt?: string) {
@@ -138,7 +140,9 @@ function calcRow(t: TimelineDto): RowCalc {
   return { label: "판매완료 (분배미완)", tone: "warning", kind: "DIST_SALE_DONE_UNPAID" };
 }
 
-export default function TimelineList() {
+type Props = { refreshTick?: number };
+
+export default function TimelineList({ refreshTick }: { refreshTick?: number }) {
   const [rows, setRows] = useState<TimelineDto[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -173,6 +177,18 @@ export default function TimelineList() {
     return () => abortRef.current?.abort();
   }, []);
 
+  // 부모 refreshKey가 바뀔 때마다 새로고침
+  useEffect(() => {
+    reload();
+  }, [refreshTick]);
+
+  // 1분마다 새로고침
+  useEffect(() => {
+    reload();
+    const t = setInterval(reload, 60_000);
+    return () => clearInterval(t);
+  }, []);
+
   // 필터링/정렬
   const tableRows = useMemo(() => {
     const keyword = q.trim().toLowerCase();
@@ -205,8 +221,6 @@ export default function TimelineList() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="잡은 보스 관리" />
-
       <Card>
         {/* 검색/필터 바 */}
         <div className="flex flex-wrap gap-2 mb-3">
@@ -230,58 +244,60 @@ export default function TimelineList() {
         </div>
 
         {/* 표 */}
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-xs text-gray-500">
-              <th className="py-2">컷 시각</th>
-              <th>보스</th>
-              <th>기록자</th>
-              <th>참여</th>
-              <th>드랍 요약</th>
-              <th>상태</th>
-              <th>액션</th>
-            </tr>
-          </thead>
+        <div className="flex-1 overflow-y-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-gray-500">
+                <th className="py-2">컷 시각</th>
+                <th>보스</th>
+                <th>기록자</th>
+                <th>참여</th>
+                <th>드랍 요약</th>
+                <th>상태</th>
+                <th>액션</th>
+              </tr>
+            </thead>
 
-          <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan={7} className="py-6 text-center text-slate-500">불러오는 중…</td>
-              </tr>
-            ) : tableRows.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="py-6 text-center text-slate-400 italic">기록이 없습니다.</td>
-              </tr>
-            ) : (
-              tableRows.map((t) => {
-                const s = calcRow(t);
-                return (
-                  <tr key={t.id} className="border-t">
-                    <td className="py-2">{fmt(t.cutAt)}</td>
-                    <td>{t.bossName}</td>
-                    <td>{t.createdBy}</td>
-                    <td>{countParticipants(t)}명</td>
-                    <td>{buildDropsSummary(t)}</td>
-                    <td>
-                      <Pill tone={s.tone as any}>{s.label}</Pill>
-                    </td>
-                    <td>
-                      <button
-                        onClick={() => {
-                          setActiveTimelineId(t.id);
-                          setManageOpen(true);
-                        }}
-                        className="px-2 py-1 rounded bg-slate-900 text-white text-xs"
-                      >
-                        보스 컷 관리
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="py-6 text-center text-slate-500">불러오는 중…</td>
+                </tr>
+              ) : tableRows.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-6 text-center text-slate-400 italic">기록이 없습니다.</td>
+                </tr>
+              ) : (
+                tableRows.map((t) => {
+                  const s = calcRow(t);
+                  return (
+                    <tr key={t.id} className="border-t">
+                      <td className="py-2">{fmt(t.cutAt)}</td>
+                      <td>{t.bossName}</td>
+                      <td>{t.createdBy}</td>
+                      <td>{countParticipants(t)}명</td>
+                      <td>{buildDropsSummary(t)}</td>
+                      <td>
+                        <Pill tone={s.tone as any}>{s.label}</Pill>
+                      </td>
+                      <td>
+                        <button
+                          onClick={() => {
+                            setActiveTimelineId(t.id);
+                            setManageOpen(true);
+                          }}
+                          className="px-2 py-1 rounded bg-slate-900 text-white text-xs"
+                        >
+                          보스 컷 관리
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
       </Card>
 
       {/* 관리 팝업 */}

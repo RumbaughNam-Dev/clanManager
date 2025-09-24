@@ -12,13 +12,13 @@ type MemberRow = {
   createdAt: string;
 };
 
-type CutModalProps = {
-  open: boolean;
-  boss: BossDto | null;
-  onClose: () => void;
-  onSaved: () => void;
-  defaultCutAt: string;
-};
+ type CutModalProps = {
+   open: boolean;
+   boss: { id: string; name: string } | null;   // ✅ 필요한 필드만
+   onClose: () => void;
+   onSaved: () => void;
+   defaultCutAt: string;
+ };
 
 type Mode = "DISTRIBUTE" | "TREASURY";
 

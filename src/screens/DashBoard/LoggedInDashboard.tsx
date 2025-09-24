@@ -21,6 +21,12 @@ const MISSED_WARN_MS = 3 * MIN;
 const BADGE_LEFT = "80%";      // 폭 4/5 지점
 const BADGE_TOP  = "33.333%";  // 높이 1/3 지점//
 
+// Combined에서 공유해서 사용
+type Props = {
+  refreshTick?: number;
+  onForceRefresh?: () => void;
+};
+
 //  ── 초성 검색 유틸 ──
 const CHO = [
   "ㄱ","ㄲ","ㄴ","ㄷ","ㄸ","ㄹ","ㅁ","ㅂ","ㅃ","ㅅ",
@@ -30,6 +36,10 @@ const HANGUL_BASE = 0xac00;
 const HANGUL_LAST = 0xd7a3;
 const JUNG = 21;
 const JONG = 28;
+
+// 🔹 전역 상태: 현재 열린 툴팁의 bossId
+let globalOpenId: string | null = null;
+let rerenders: (() => void)[] = [];
 
 // 문자열 → 초성만 추출 (예: "서드 북드" → "ㅅㄷ ㅂㄷ")
 function toChosung(str: string): string {
@@ -100,7 +110,10 @@ function fmtDaily(genTime: unknown) {
 }
 
 /** ───────── 컴포넌트 ───────── */
-export default function LoggedInDashboard() {
+export default function LoggedInDashboard({
+  refreshTick,
+  onForceRefresh,
+}: { refreshTick?: number; onForceRefresh?: () => void }) {
   /** 서버 데이터 */
   const [trackedRaw, setTrackedRaw] = useState<BossDto[]>([]);
   const [forgottenRaw, setForgottenRaw] = useState<BossDto[]>([]);
@@ -133,9 +146,9 @@ export default function LoggedInDashboard() {
 
   useEffect(() => {
     loadBosses();
-    const t = setInterval(() => loadBosses(), 60_000);
+    const t = setInterval(loadBosses, 60_000); // 1분마다 자동 갱신
     return () => clearInterval(t);
-  }, []);
+  }, [refreshTick]);
 
   const lastNextSpawnRef = useRef<Map<string, number>>(new Map());
   const missedWarnSetRef = useRef<Set<string>>(new Set());
@@ -508,89 +521,49 @@ async function runInitCutForAll() {
   }
 
   /** 좌/중 렌더 보조 */
-function LocationHover({ text }: { text?: string | null }) {
-  const btnRef = useRef<HTMLButtonElement | null>(null);
-  const tipIdRef = useRef("boss-loc-tip-" + Math.random().toString(36).slice(2));
-  const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState<{ top: number; left: number }>({ top: -9999, left: -9999 });
+  function LocationHover({ text, bossId }: { text?: string | null; bossId: string }) {
+    const [, setTick] = useState(0);
 
-  const placeTooltip = useCallback(() => {
-    const el = btnRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const gap = 8;
-    let top = rect.top - 8;          // 버튼 위쪽에
-    let left = rect.right + gap;     // 오른쪽 바깥
-    // 화면 밖 방지
-    const vw = window.innerWidth, vh = window.innerHeight;
-    const TIP_W = 200; // 대략치 (필요시 조정)
-    if (left > vw - TIP_W) left = rect.left - gap - TIP_W; // 좌측으로 뒤집기
-    if (top < 8) top = rect.bottom + gap;                   // 아래로
-    setPos({ top, left });
-  }, []);
+    // 모든 인스턴스를 rerender 리스트에 등록
+    useEffect(() => {
+      const fn = () => setTick(x => x + 1);
+      rerenders.push(fn);
+      return () => {
+        rerenders = rerenders.filter(f => f !== fn);
+      };
+    }, []);
 
-  const openTooltip = useCallback(() => {
-    if (!text) return;
-    placeTooltip();
-    setOpen(true);
-  }, [placeTooltip, text]);
+    const isOpen = globalOpenId === bossId;
 
-  const closeTooltip = useCallback(() => setOpen(false), []);
-
-  const onBtnEnter = useCallback(() => {
-    openTooltip();
-  }, [openTooltip]);
-
-  const onBtnLeave = useCallback((e: React.MouseEvent) => {
-    const to = e.relatedTarget as Node | null;
-    const tip = document.getElementById(tipIdRef.current);
-    if (tip && to && tip.contains(to)) return; // 툴팁으로 이동 시 닫지 않음
-    closeTooltip();
-  }, [closeTooltip]);
-
-  // 툴팁에서 hover 유지: 버튼에서 벗어나도 닫히지 않음
-  const onTipEnter = useCallback(() => setOpen(true), []);
-  const onTipLeave = useCallback(() => setOpen(false), []);
-
-  useEffect(() => {
-    if (!open) return;
-    const onScrollOrResize = () => placeTooltip();
-    window.addEventListener("scroll", onScrollOrResize, true);
-    window.addEventListener("resize", onScrollOrResize);
-    return () => {
-      window.removeEventListener("scroll", onScrollOrResize, true);
-      window.removeEventListener("resize", onScrollOrResize);
+    const toggle = () => {
+      globalOpenId = isOpen ? null : bossId;
+      rerenders.forEach(fn => fn());
     };
-  }, [open, placeTooltip]);
 
-  return (
-    <>
-      <button
-        ref={btnRef}
-        type="button"
-        onMouseEnter={onBtnEnter}
-        onMouseLeave={onBtnLeave}
-        className="pointer-events-auto w-full rounded-md border text-[10px] leading-none px-2 py-[3px] bg-white/80 text-slate-600 shadow-sm hover:bg-white relative z-[70]"
-      >
-        보스 젠 위치
-      </button>
-
-      {open && !!text && (
-        <div
-          id={tipIdRef.current}
-          onMouseEnter={onTipEnter}
-          onMouseLeave={onTipLeave}
-          className="fixed z-[100000] pointer-events-auto max-w-[60vw]
-                     rounded-md border bg-white/95 px-2 py-1 text-[12px] text-slate-700
-                     shadow-lg backdrop-blur-sm whitespace-pre-wrap break-keep"
-          style={{ top: pos.top, left: pos.left, width: 200 }}
+    return (
+      <div className="relative inline-block">
+        <button
+          type="button"
+          onClick={toggle}
+          className="pointer-events-auto w-full rounded-md border text-[10px] leading-none px-2 py-[3px]
+                    bg-white/80 text-slate-600 shadow-sm hover:bg-white relative z-[70]"
         >
-          {text}
-        </div>
-      )}
-    </>
-  );
-}
+          보스 젠 위치
+        </button>
+
+        {isOpen && !!text && (
+          <div
+            className="absolute z-[100000] w-[200px]
+                      rounded-md border bg-white/95 px-2 py-1 text-[12px] text-slate-700
+                      shadow-lg backdrop-blur-sm whitespace-pre-wrap break-keep"
+            style={{ top: "100%", left: "0", marginTop: "4px" }}
+          >
+            {text}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   function renderTile(b: BossDto, list: "left" | "middle" = "left") {
     const remain = remainingMsFor(b);
@@ -655,21 +628,20 @@ function LocationHover({ text }: { text?: string | null }) {
             컷
           </button>
           <div />
-          {canDaze ? (
-            <button
-              type="button"
-              onClick={() => addDaze(b)}
-              className="text-[10px] leading-none px-2 py-[3px] rounded-md border text-slate-700 hover:bg-slate-50"
-            >
-              멍
-            </button>
-          ) : (
-            <span className="text-[10px] leading-none px-2 py-[3px] rounded-md border opacity-0 select-none">멍</span>
-          )}
+            {/* 멍 버튼 */}
+            {list === "left" && b.isRandom && (
+              <button
+                type="button"
+                onClick={() => addDaze(b)}
+                className="text-[10px] leading-none px-2 py-[3px] rounded-md border text-slate-700 hover:bg-slate-50"
+              >
+                멍
+              </button>
+            )}
           {/* 위치 버튼 */}
           {b.location && (
             <div className="col-span-3 pt-1">
-              <LocationHover text={b.location} />
+              <LocationHover text={b.location} bossId={b.id} />
             </div>
           )}
         </div>
@@ -933,7 +905,7 @@ function LocationHover({ text }: { text?: string | null }) {
     }
   }
 
-  /** 좌/중: 즉시 컷 */
+  // 컷 처리
   async function instantCut(b: BossDto) {
     try {
       await postJSON(`/v1/dashboard/bosses/${b.id}/cut`, {
@@ -943,12 +915,13 @@ function LocationHover({ text }: { text?: string | null }) {
         participants: [],
       });
       await loadBosses();
+      onForceRefresh?.();   // ✅ 하단 새로고침
     } catch (e: any) {
       alert(e?.message ?? "즉시 컷 실패");
     }
   }
 
-  /** 좌/중: 멍(+1) — 서버 성공 후 목록 재로드 */
+  // 멍 처리
   async function addDaze(b: BossDto) {
     try {
       const timelineId = await getTimelineIdForBossName(b.name);
@@ -958,6 +931,7 @@ function LocationHover({ text }: { text?: string | null }) {
       }
       await postJSON(`/v1/boss-timelines/${timelineId}/daze`, { atIso: new Date().toISOString() });
       await loadBosses();
+      onForceRefresh?.();   // ✅ 하단 새로고침
     } catch {
       alert("멍 기록에 실패했습니다. 잠시 후 다시 시도해 주세요.");
     }
@@ -988,7 +962,7 @@ function LocationHover({ text }: { text?: string | null }) {
 
   /** JSX */
   return (
-    <div className="h-[calc(100dvh-56px)] min-h-0 overflow-hidden grid grid-rows-[auto_1fr] gap-3">
+    <div className="h-full min-h-0 overflow-hidden grid grid-rows-[auto_1fr] gap-3">
       {/* 상단바 */}
       <div className="flex items-center gap-3 flex-wrap">
         {/* 검색(좌/중만) */}
@@ -1079,13 +1053,15 @@ function LocationHover({ text }: { text?: string | null }) {
         {/* 좌측: 진행중(비고정) */}
         <section className="col-span-1 min-h-0 overflow-y-auto px-1 relative z-0">
           <h2 className="text-base font-semibold mb-2 text-slate-700">
-            진행중 보스타임
+            다음 보스 젠
             {query ? <span className="ml-2 text-xs text-slate-400">({leftTracked.length}개)</span> : null}
           </h2>
 
           <div className="flex-1 min-h-0 overflow-y-auto">
             {loading ? (
-              <div className="h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-500">불러오는 중…</div>
+              <div className="h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-500">
+                불러오는 중…
+              </div>
             ) : leftTracked.length === 0 ? (
               <div className="mt-3 h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-400 italic">
                 {query ? "검색 결과가 없습니다." : "스케줄 추적 중인 보스가 없습니다."}
@@ -1093,27 +1069,39 @@ function LocationHover({ text }: { text?: string | null }) {
             ) : (
               (() => {
                 const { soon, rest } = splitSoonWithin5m(leftTracked);
-                const merged = [...soon, ...rest]; // 한 그리드에 합치기
+                const merged = [...soon, ...rest];
+
+                // 👉 상위 6개만 표시
+                const topSix = merged.slice(0, 6);
+
                 return (
-                  <div className="grid grid-cols-3 gap-3 pt-3 isolate">
-                    {merged.map((b) => renderTile(b, "left"))}
-                  </div>
+                  <>
+                    <div className="grid grid-cols-3 gap-3 pt-3 isolate">
+                      {topSix.map((b) => renderTile(b, "left"))}
+                    </div>
+
+                    {/* 안내 문구 */}
+                    <div className="mt-4 text-xs text-slate-500 text-center space-y-1">
+                      <p>젠 시간 빠른 순 상위 6개 보스입니다.</p>
+                      <p>보스 컷 시간은 아래 컷 목록으로 확인해주세요.</p>
+                    </div>
+                  </>
                 );
               })()
             )}
           </div>
         </section>
 
-        {/* 중앙: 미입력(비고정) */}
-        <section className="col-span-1 min-h-0 overflow-y-auto px-1 relative z-0">
-          <h2 className="text-base font-semibold mb-2 text-slate-700">
-            미입력된 보스
-            {query ? <span className="ml-2 text-xs text-slate-400">({middleTracked.length}개)</span> : null}
-          </h2>
+          {/* 중앙: 미입력(비고정) */}
+          <section className="col-span-1 h-full min-h-0 px-1 relative z-0 flex flex-col">
+            <h2 className="text-base font-semibold mb-2 text-slate-700">잃어버린 보스</h2>
 
-          <div className="flex-1 min-h-0 overflow-y-auto">
+            {/* 스크롤 영역 */}
+            <div className="flex-1 min-h-0 overflow-y-auto">
             {loading ? (
-              <div className="h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-500">불러오는 중…</div>
+              <div className="h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-500">
+                불러오는 중…
+              </div>
             ) : middleTracked.length === 0 ? (
               <div className="mt-3 h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-400 italic">
                 {query ? "검색 결과가 없습니다." : "미입력된 보스가 없습니다."}
@@ -1132,12 +1120,16 @@ function LocationHover({ text }: { text?: string | null }) {
           </div>
         </section>
 
-        {/* 우측: 고정 보스(05시 리셋, 00:00 이후 전부 파랑) */}
-        <section className="col-span-1 min-h-0 overflow-y-auto px-1 relative z-0">
+        {/* 우측: 고정 보스 */}
+        <section className="col-span-1 h-full min-h-0 px-1 relative z-0 flex flex-col">
           <h2 className="text-base font-semibold mb-2 text-slate-700">고정 보스</h2>
-          <div className="space-y-3">
+
+          {/* 스크롤 영역 */}
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-3">
             {loading ? (
-              <div className="h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-500">불러오는 중…</div>
+              <div className="h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-500">
+                불러오는 중…
+              </div>
             ) : fixedSorted.length === 0 ? (
               <div className="mt-3 h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-400 italic">
                 고정 보스가 없습니다.
