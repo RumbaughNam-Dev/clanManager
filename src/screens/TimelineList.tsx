@@ -156,6 +156,16 @@ export default function TimelineList({ refreshTick }: { refreshTick?: number }) 
   // AbortController로 중복요청 취소
   const abortRef = useRef<AbortController | null>(null);
 
+  // 추가: 날짜 상태
+  const today = new Date();
+  const defaultTo = today.toISOString().slice(0, 10); // yyyy-MM-dd
+  const defaultFrom = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000) // 7일 전
+    .toISOString()
+    .slice(0, 10);
+
+  const [fromDate, setFromDate] = useState(defaultFrom);
+  const [toDate, setToDate] = useState(defaultTo);
+
   const reload = async () => {
     abortRef.current?.abort();
     const ac = new AbortController();
@@ -163,7 +173,10 @@ export default function TimelineList({ refreshTick }: { refreshTick?: number }) 
 
     setLoading(true);
     try {
-      const data = await postJSON<ListResp>("/v1/boss-timelines", { signal: ac.signal });
+      const data = await postJSON<ListResp>("/v1/boss-timelines", {
+        signal: ac.signal,
+        body: { fromDate, toDate }, // ✅ 기간 전달
+      });
       setRows(data.items ?? []);
     } catch {
       setRows([]);
@@ -219,101 +232,127 @@ export default function TimelineList({ refreshTick }: { refreshTick?: number }) 
     });
   }, [rows, q, filter]);
 
-  return (
-    <div className="space-y-4">
-      <Card>
-        {/* 검색/필터 바 */}
-        <div className="flex flex-wrap gap-2 mb-3">
-          <input
-            className="border rounded-lg px-2 py-2 text-sm"
-            placeholder="보스명 검색"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
+// src/screens/TimelineList.tsx
+
+return (
+  <div className="h-full flex flex-col">
+    <Card className="h-full min-h-0 flex flex-col">
+      {/* 검색/필터 바 → 같은 행 */}
+      <div className="flex flex-wrap items-center gap-2 mb-3 flex-shrink-0">
+        {/* 보스명 검색 */}
+        <input
+          className="border rounded-lg px-2 py-2 text-sm"
+          placeholder="보스명 검색"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+
+        {/* 상태 필터 */}
         <select
+          className="border rounded-lg px-2 py-2 text-sm"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value as StatusFilter)}
+        >
+          <option value="ALL">상태 전체</option>
+          <option value="NOT_SOLD">판매전</option>
+          <option value="SOLD">판매완료(분배미완)</option>
+          <option value="PAID">분배완료</option>
+          <option value="TREASURY">혈비귀속</option>
+        </select>
+
+        {/* 오른쪽으로 밀착시키기 → ml-auto */}
+        <div className="ml-auto flex items-center gap-2">
+          <input
+            type="date"
             className="border rounded-lg px-2 py-2 text-sm"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value as StatusFilter)}
-          >
-            <option value="ALL">상태 전체</option>
-            <option value="NOT_SOLD">판매전</option>
-            <option value="SOLD">판매완료(분배미완)</option>
-            <option value="PAID">분배완료</option>
-            <option value="TREASURY">혈비귀속</option>
-          </select>
+            value={fromDate}
+            onChange={(e) => setFromDate(e.target.value)}
+          />
+          <span>~</span>
+          <input
+            type="date"
+            className="border rounded-lg px-2 py-2 text-sm"
+            value={toDate}
+            onChange={(e) => setToDate(e.target.value)}
+          />
         </div>
+      </div>
 
-        {/* 표 */}
-        <div className="flex-1 overflow-y-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-gray-500">
-                <th className="py-2">컷 시각</th>
-                <th>보스</th>
-                <th>기록자</th>
-                <th>참여</th>
-                <th>드랍 요약</th>
-                <th>상태</th>
-                <th>액션</th>
+      {/* 표 → rows만 스크롤 */}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 bg-white z-10">
+            <tr className="text-left text-xs text-gray-500">
+              <th className="py-2">컷 시각</th>
+              <th>보스</th>
+              <th>기록자</th>
+              <th>참여</th>
+              <th>드랍 요약</th>
+              <th>상태</th>
+              <th>액션</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {loading ? (
+              <tr>
+                <td colSpan={7} className="py-6 text-center text-slate-500">
+                  불러오는 중…
+                </td>
               </tr>
-            </thead>
+            ) : tableRows.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="py-6 text-center text-slate-400 italic">
+                  기록이 없습니다.
+                </td>
+              </tr>
+            ) : (
+              tableRows.map((t) => {
+                const s = calcRow(t);
+                return (
+                  <tr key={t.id} className="border-t">
+                    <td className="py-2">{fmt(t.cutAt)}</td>
+                    <td>{t.bossName}</td>
+                    <td>{t.createdBy}</td>
+                    <td>{countParticipants(t)}명</td>
+                    <td>{buildDropsSummary(t)}</td>
+                    <td>
+                      <Pill tone={s.tone as any}>{s.label}</Pill>
+                    </td>
+                    <td>
+                      <button
+                        onClick={() => {
+                          setActiveTimelineId(t.id);
+                          setManageOpen(true);
+                        }}
+                        className="px-2 py-1 rounded bg-slate-900 text-white text-xs"
+                      >
+                        보스 컷 관리
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </Card>
 
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={7} className="py-6 text-center text-slate-500">불러오는 중…</td>
-                </tr>
-              ) : tableRows.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="py-6 text-center text-slate-400 italic">기록이 없습니다.</td>
-                </tr>
-              ) : (
-                tableRows.map((t) => {
-                  const s = calcRow(t);
-                  return (
-                    <tr key={t.id} className="border-t">
-                      <td className="py-2">{fmt(t.cutAt)}</td>
-                      <td>{t.bossName}</td>
-                      <td>{t.createdBy}</td>
-                      <td>{countParticipants(t)}명</td>
-                      <td>{buildDropsSummary(t)}</td>
-                      <td>
-                        <Pill tone={s.tone as any}>{s.label}</Pill>
-                      </td>
-                      <td>
-                        <button
-                          onClick={() => {
-                            setActiveTimelineId(t.id);
-                            setManageOpen(true);
-                          }}
-                          className="px-2 py-1 rounded bg-slate-900 text-white text-xs"
-                        >
-                          보스 컷 관리
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-
-      {/* 관리 팝업 */}
-      <BossCutManageModal
-        open={manageOpen}
-        timelineId={activeTimelineId}
-        onClose={() => setManageOpen(false)}
-        onSaved={async () => {
-          try {
-            const data = await postJSON<ListResp>("/v1/boss-timelines");
-            setRows(data.items ?? []);
-          } catch {
-            // ignore
-          }
-        }}
-      />
-    </div>
-  );
+    {/* 관리 팝업 */}
+    <BossCutManageModal
+      open={manageOpen}
+      timelineId={activeTimelineId}
+      onClose={() => setManageOpen(false)}
+      onSaved={async () => {
+        try {
+          const data = await postJSON<ListResp>("/v1/boss-timelines");
+          setRows(data.items ?? []);
+        } catch {
+          // ignore
+        }
+      }}
+    />
+  </div>
+);
 }

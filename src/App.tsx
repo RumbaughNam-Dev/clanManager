@@ -146,15 +146,13 @@ export default function App() {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-5 py-6 space-y-6">
+      <main className={page === "dashboard" ? "max-w-6xl mx-auto px-5 flex-1 flex flex-col h-[calc(100vh-56px)]" : "max-w-6xl mx-auto px-5 py-6 space-y-6"}>
         {page === "dashboard" && <DashboardCombined />}
         {page === "members" && <Members />}
         {page === "timelineList" && <TimelineList />}
         {page === "timelineDetail" && <TimelineDetail role={effectiveRole} />}
         {page === "treasury" && <Treasury role={effectiveRole} />}
-        {page === "login" && (
-          <Login onGoSignup={() => setPage("signup")} />
-        )}
+        {page === "login" && <Login onGoSignup={() => setPage("signup")} />}
         {page === "signup" && <Signup />}
         {page === "adminClanRequests" && <AdminClanRequests />}
         {page === "adminBossCycle" && <AdminBossCycle />}
