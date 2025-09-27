@@ -4,6 +4,11 @@ import { postJSON } from "@/lib/http";
 import type { BossDto } from "../../types";
 import { toIsoFromLocal, roleLabel } from "../../utils/util";
 import { useAuth } from "@/contexts/AuthContext";
+import DatePicker, { registerLocale } from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
+import { ko } from "date-fns/locale";
+
+registerLocale("ko", ko);
 
 type MemberRow = {
   id: string;
@@ -252,13 +257,19 @@ export default function CutModal({
       <div className="grid md:grid-cols-2 gap-6">
         {/* 좌측 */}
         <div className="space-y-4">
+          {/* 컷 시간 */}
           <div>
             <label className="block text-sm mb-1">컷 시간</label>
-            <input
+            <DatePicker
+              selected={new Date(cutAtInput)}
+              locale="ko"
+              onChange={(date: Date | null) => {
+                if (date) setCutAtInput(date.toISOString());
+              }}
+              showTimeSelect
+              timeIntervals={1}
+              dateFormat="yyyy-MM-dd HH:mm:ss"
               className="w-full border rounded-lg px-3 py-2"
-              value={cutAtInput}
-              onChange={(e) => setCutAtInput(e.target.value)}
-              placeholder="YYYY-MM-DD HH:mm:ss"
             />
           </div>
 

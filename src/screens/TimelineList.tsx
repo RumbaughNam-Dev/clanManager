@@ -157,14 +157,25 @@ export default function TimelineList({ refreshTick }: { refreshTick?: number }) 
   const abortRef = useRef<AbortController | null>(null);
 
   // 추가: 날짜 상태
+  // 로컬 yyyy-MM-dd 포맷터
+  function formatDateLocal(d: Date): string {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  // 추가: 날짜 상태
   const today = new Date();
-  const defaultTo = today.toISOString().slice(0, 10); // yyyy-MM-dd
-  const defaultFrom = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000) // 7일 전
-    .toISOString()
-    .slice(0, 10);
+  const defaultTo = formatDateLocal(today); // ✅ 로컬 오늘 날짜
+  const defaultFrom = formatDateLocal(new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)); // 7일 전
 
   const [fromDate, setFromDate] = useState(defaultFrom);
   const [toDate, setToDate] = useState(defaultTo);
+
+  useEffect(() => {
+    reload();
+  }, [fromDate, toDate]);
 
   const reload = async () => {
     abortRef.current?.abort();
@@ -173,10 +184,11 @@ export default function TimelineList({ refreshTick }: { refreshTick?: number }) 
 
     setLoading(true);
     try {
-      const data = await postJSON<ListResp>("/v1/boss-timelines", {
-        signal: ac.signal,
-        body: { fromDate, toDate }, // ✅ 기간 전달
-      });
+      const data = await postJSON<ListResp>(
+        "/v1/boss-timelines",
+        { fromDate, toDate },   // ✅ body만 직접 전달
+        { signal: ac.signal }   // ✅ 옵션은 따로 전달
+      );
       setRows(data.items ?? []);
     } catch {
       setRows([]);
@@ -322,8 +334,11 @@ return (
                     <td>
                       <button
                         onClick={() => {
-                          setActiveTimelineId(t.id);
-                          setManageOpen(true);
+                          setManageOpen(false);
+                          setTimeout(() => {
+                            setActiveTimelineId(t.id);
+                            setManageOpen(true);
+                          }, 0); // ✅ 강제로 닫았다가 다시 열기
                         }}
                         className="px-2 py-1 rounded bg-slate-900 text-white text-xs"
                       >
@@ -341,9 +356,14 @@ return (
 
     {/* 관리 팝업 */}
     <BossCutManageModal
+      key={activeTimelineId ?? "none"}
       open={manageOpen}
       timelineId={activeTimelineId}
-      onClose={() => setManageOpen(false)}
+      onClose={() => {
+          setManageOpen(false);
+          setActiveTimelineId(null);   // ✅ 팝업 닫을 때 초기화
+        }
+      }
       onSaved={async () => {
         try {
           const data = await postJSON<ListResp>("/v1/boss-timelines");

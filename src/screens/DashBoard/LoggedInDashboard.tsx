@@ -3,6 +3,11 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { postJSON } from "@/lib/http";
 import type { BossDto } from "../../types";
 
+// ────────────────────────────────
+// LocationHover: Tooltip with parent-managed hover state
+// ────────────────────────────────
+import { createPortal } from "react-dom";
+
 /** ───────── 상수 ───────── */
 const MS = 1000;
 const MIN = 60 * MS;
@@ -37,9 +42,7 @@ const HANGUL_LAST = 0xd7a3;
 const JUNG = 21;
 const JONG = 28;
 
-// 🔹 전역 상태: 현재 열린 툴팁의 bossId
-let globalOpenId: string | null = null;
-let rerenders: (() => void)[] = [];
+
 
 // 문자열 → 초성만 추출 (예: "서드 북드" → "ㅅㄷ ㅂㄷ")
 function toChosung(str: string): string {
@@ -194,6 +197,8 @@ export default function LoggedInDashboard({
     if (!Number.isFinite(occ)) return null;
     return (occ as number) <= nowMs ? (occ as number) + DAY : (occ as number);
   }
+
+  const [allBossOpen, setAllBossOpen] = useState(false);
 
   /** 서버 로드 */
   async function loadBosses() {
@@ -519,51 +524,96 @@ async function runInitCutForAll() {
       }
     });
   }
+  function LocationHover({
+    text,
+    bossId,
+    hoverBossId,
+    setHoverBossId,
+  }: {
+    text?: string | null;
+    bossId: string;
+    hoverBossId: string | null;
+    setHoverBossId: (id: string | null) => void;
+  }) {
+    const open = hoverBossId === bossId;
+    const btnRef = useRef<HTMLButtonElement | null>(null);
+    const [tooltipPos, setTooltipPos] = useState<{ top: number; left: number } | null>(null);
+    // When mouse enters button or tooltip, set hovered bossId; when leaves, clear
+    const handleButtonMouseEnter = useCallback(() => setHoverBossId(bossId), [setHoverBossId, bossId]);
+    const handleButtonMouseLeave = useCallback(() => setHoverBossId(null), [setHoverBossId]);
+    const handleTooltipMouseEnter = useCallback(() => setHoverBossId(bossId), [setHoverBossId, bossId]);
+    const handleTooltipMouseLeave = useCallback(() => setHoverBossId(null), [setHoverBossId]);
 
-  /** 좌/중 렌더 보조 */
-  function LocationHover({ text, bossId }: { text?: string | null; bossId: string }) {
-    const [, setTick] = useState(0);
-
-    // 모든 인스턴스를 rerender 리스트에 등록
+    // Calculate tooltip position when open
     useEffect(() => {
-      const fn = () => setTick(x => x + 1);
-      rerenders.push(fn);
+      if (!open) {
+        setTooltipPos(null);
+        return;
+      }
+      function updatePosition() {
+        const btn = btnRef.current;
+        if (btn) {
+          const rect = btn.getBoundingClientRect();
+          // Position below the button, aligned left
+          setTooltipPos({
+            top: rect.bottom + window.scrollY + 4,
+            left: rect.left + window.scrollX,
+          });
+        }
+      }
+      updatePosition();
+      window.addEventListener("scroll", updatePosition, true);
+      window.addEventListener("resize", updatePosition);
       return () => {
-        rerenders = rerenders.filter(f => f !== fn);
+        window.removeEventListener("scroll", updatePosition, true);
+        window.removeEventListener("resize", updatePosition);
       };
-    }, []);
+    }, [open]);
 
-    const isOpen = globalOpenId === bossId;
+    // Only one tooltip open at a time: controlled by hoverBossId/setHoverBossId
+    // Tooltip stays open when hovering over it (no flicker)
 
-    const toggle = () => {
-      globalOpenId = isOpen ? null : bossId;
-      rerenders.forEach(fn => fn());
-    };
+    // Render tooltip using portal
+    const tooltipNode =
+      open && !!text && tooltipPos
+        ? createPortal(
+            <div
+              className="z-[999999] w-[200px] rounded-md border bg-white/95 px-2 py-1 text-[12px] text-slate-700 shadow-lg backdrop-blur-sm whitespace-pre-wrap break-keep"
+              style={{
+                position: "absolute",
+                top: tooltipPos.top,
+                left: tooltipPos.left,
+              }}
+              onMouseEnter={handleTooltipMouseEnter}
+              onMouseLeave={handleTooltipMouseLeave}
+            >
+              {text}
+            </div>,
+            document.body
+          )
+        : null;
 
     return (
-      <div className="relative inline-block">
-        <button
-          type="button"
-          onClick={toggle}
-          className="pointer-events-auto w-full rounded-md border text-[10px] leading-none px-2 py-[3px]
-                    bg-white/80 text-slate-600 shadow-sm hover:bg-white relative z-[70]"
-        >
-          보스 젠 위치
-        </button>
-
-        {isOpen && !!text && (
-          <div
-            className="absolute z-[100000] w-[200px]
-                      rounded-md border bg-white/95 px-2 py-1 text-[12px] text-slate-700
-                      shadow-lg backdrop-blur-sm whitespace-pre-wrap break-keep"
-            style={{ top: "100%", left: "0", marginTop: "4px" }}
+      <>
+        <div className="relative block w-full">
+          <button
+            type="button"
+            ref={btnRef}
+            onMouseEnter={handleButtonMouseEnter}
+            onMouseLeave={handleButtonMouseLeave}
+            className="pointer-events-auto w-full text-center rounded-md border text-[10px] leading-none px-2 py-[3px]
+                      bg-white/80 text-slate-600 shadow-sm hover:bg-white relative z-[70]"
           >
-            {text}
-          </div>
-        )}
-      </div>
+            보스 젠 위치
+          </button>
+        </div>
+        {tooltipNode}
+      </>
     );
   }
+
+  // State for tracking which boss's tooltip is open
+  const [hoverBossId, setHoverBossId] = useState<string | null>(null);
 
   function renderTile(b: BossDto, list: "left" | "middle" = "left") {
     const remain = remainingMsFor(b);
@@ -618,30 +668,45 @@ async function runInitCutForAll() {
           {hms == null ? "미입력" : (<>{hms}<span className="ml-1">{afterLabel}</span></>)}
         </div>
 
-        {/* 버튼 영역 (세로크기 통일: text-[10px] leading-none px-2 py-[3px]) */}
-        <div className="mt-1 grid grid-cols-[auto_1fr_auto] items-center gap-1 pr-1">
-          <button
-            type="button"
-            onClick={() => instantCut(b)}
-            className="text-[10px] leading-none px-2 py-[3px] rounded-md text-white bg-slate-900 hover:opacity-90"
-          >
-            컷
-          </button>
-          <div />
-            {/* 멍 버튼 */}
-            {list === "left" && b.isRandom && (
+        {/* 버튼 영역 */}
+        <div className="mt-1 grid grid-cols-2 gap-1 items-center">
+          {list === "left" && b.isRandom ? (
+            <>
+              <button
+                type="button"
+                onClick={() => instantCut(b)}
+                className="w-full text-[10px] leading-none px-2 py-[3px] rounded-md text-white bg-slate-900 hover:opacity-90"
+              >
+                컷
+              </button>
               <button
                 type="button"
                 onClick={() => addDaze(b)}
-                className="text-[10px] leading-none px-2 py-[3px] rounded-md border text-slate-700 hover:bg-slate-50"
+                className="w-full text-[10px] leading-none px-2 py-[3px] rounded-md border text-slate-700 hover:bg-slate-50"
               >
                 멍
               </button>
-            )}
-          {/* 위치 버튼 */}
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => instantCut(b)}
+              className="col-span-2 w-full text-[10px] leading-none px-2 py-[3px] rounded-md text-white bg-slate-900 hover:opacity-90"
+            >
+              컷
+            </button>
+          )}
+
           {b.location && (
-            <div className="col-span-3 pt-1">
-              <LocationHover text={b.location} bossId={b.id} />
+            <div className="col-span-2 pt-1 w-full">
+              <div className="w-full">
+                <LocationHover
+                  text={b.location}
+                  bossId={b.id}
+                  hoverBossId={hoverBossId}
+                  setHoverBossId={setHoverBossId}
+                />
+              </div>
             </div>
           )}
         </div>
@@ -897,7 +962,8 @@ async function runInitCutForAll() {
       });
 
       setQuickCutText("");
-      await loadBosses();
+      await loadBosses();      // ⬅️ 상단 섹션 갱신
+      onForceRefresh?.();      // ⬅️ 하단 섹션도 강제 갱신 추가
     } catch (e: any) {
       alert(e?.message ?? "간편컷 저장 실패");
     } finally {
@@ -960,19 +1026,23 @@ async function runInitCutForAll() {
     setShareOpen(true);
   }
 
+  // 디코 보스봇 정보 가져오기
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState("");
+
   /** JSX */
   return (
     <div className="h-full min-h-0 overflow-hidden grid grid-rows-[auto_1fr] gap-3">
       {/* 상단바 */}
       <div className="flex items-center gap-3 flex-wrap">
         {/* 검색(좌/중만) */}
-        <div className="relative w-1/5 min-w-[160px]">
-          <input
-            className="w-full border rounded-xl px-4 py-2 pr-10"
-            placeholder="보스 이름/위치 검색"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
+          <div className="relative w-auto min-w-[140px] max-w-[180px]">
+            <input
+              className="w-full border rounded-xl px-2 py-1.5 pr-6 text-sm"
+              placeholder="보스 이름/위치 검색"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
           {query && (
             <button
               type="button"
@@ -1005,7 +1075,7 @@ async function runInitCutForAll() {
         {/* 간편 컷 */}
         <div className="flex items-center gap-2">
           <input
-            className="border rounded-xl px-3 py-2 w-[220px]"
+            className="border rounded-xl px-4 py-2 w-[220px]"
             placeholder="예: 2200 서드"
             value={quickCutText}
             onChange={(e) => setQuickCutText(e.target.value)}
@@ -1013,16 +1083,6 @@ async function runInitCutForAll() {
               if (e.key === "Enter") { e.preventDefault(); submitQuickCut(); }
             }}
           />
-          <button
-            type="button"
-            className={`px-3 py-2 rounded-xl text-white ${
-              quickSaving ? "bg-gray-300" : "bg-slate-900 hover:opacity-90"
-            }`}
-            onClick={submitQuickCut}
-            disabled={quickSaving}
-          >
-            {quickSaving ? "저장 중…" : "간편컷 저장"}
-          </button>
         </div>
 
         {/* 칸막이 */}
@@ -1030,152 +1090,187 @@ async function runInitCutForAll() {
 
         {/* 신규 버튼들 */}
         <div className="flex items-center gap-2">
+          {/* 보스 초기화 */}
           <button
             type="button"
-            className="px-3 py-2 rounded-xl bg-slate-900 text-white hover:opacity-90"
+            className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-slate-900 text-white text-sm hover:opacity-90"
             onClick={() => setInitOpen(v => !v)}
             title="모든 보스를 지정 시각(+5분)으로 일괄 컷"
           >
-            보스 시간 초기화
+            {/* 🔄 새로고침 아이콘 */}
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M4 4v6h6M20 20v-6h-6M20 4h-6V2m0 0a8 8 0 010 16m0-16a8 8 0 100 16" />
+            </svg>
+            보스 초기화
           </button>
+
+          {/* 디코 보스봇 시간 공유 */}
           <button
             type="button"
-            className="px-3 py-2 rounded-xl bg-slate-900 text-white hover:opacity-90"
+            className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-slate-900 text-white text-sm hover:opacity-90"
             onClick={openShareModal}
           >
-            디코 보스탐 공유
+            {/* 📤 공유 아이콘 */}
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M4 12v.01M4 6v.01M4 18v.01M12 6v12m0 0l-4-4m4 4l4-4" />
+            </svg>
+            디코 보스봇 시간 공유
+          </button>
+
+          {/* 디코 보스봇 시간 가져오기 */}
+          <button
+            type="button"
+            className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-slate-900 text-white text-sm hover:opacity-90"
+            onClick={() => setImportOpen(true)}
+          >
+            {/* 📥 가져오기 아이콘 (공유 반대 방향) */}
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M20 12v.01M20 6v.01M20 18v.01M12 18V6m0 0l-4 4m4-4l4 4" />
+            </svg>
+            디코 보스봇 시간 가져오기
           </button>
         </div>
       </div>
 
       {/* 본문 3컬럼 */}
-      <div className="min-h-0 overflow-x-visible overflow-y-hidden grid grid-cols-3 gap-4">
+      <div className="min-h-0 grid grid-cols-3 gap-4">
         {/* 좌측: 진행중(비고정) */}
-        <section className="col-span-1 min-h-0 overflow-y-auto px-1 relative z-0">
-          <h2 className="text-base font-semibold mb-2 text-slate-700">
-            다음 보스 젠
-            {query ? <span className="ml-2 text-xs text-slate-400">({leftTracked.length}개)</span> : null}
-          </h2>
+        <section className="col-span-1 min-h-0 relative z-0">
+          <div className="h-full overflow-y-auto pr-4 -mr-4">
+            <h2 className="text-base font-semibold mb-2 text-slate-700">
+              다음 보스 젠
+              {query ? <span className="ml-2 text-xs text-slate-400">({leftTracked.length}개)</span> : null}
+            </h2>
 
-          <div className="flex-1 min-h-0 overflow-y-auto">
-            {loading ? (
-              <div className="h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-500">
-                불러오는 중…
-              </div>
-            ) : leftTracked.length === 0 ? (
-              <div className="mt-3 h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-400 italic">
-                {query ? "검색 결과가 없습니다." : "스케줄 추적 중인 보스가 없습니다."}
-              </div>
-            ) : (
-              (() => {
-                const { soon, rest } = splitSoonWithin5m(leftTracked);
-                const merged = [...soon, ...rest];
+            <div className="flex-1 min-h-0">
+              {loading ? (
+                <div className="h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-500">
+                  불러오는 중…
+                </div>
+              ) : leftTracked.length === 0 ? (
+                <div className="mt-3 h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-400 italic">
+                  {query ? "검색 결과가 없습니다." : "스케줄 추적 중인 보스가 없습니다."}
+                </div>
+              ) : (
+                (() => {
+                  const { soon, rest } = splitSoonWithin5m(leftTracked);
+                  const merged = [...soon, ...rest];
+                  const topSix = merged.slice(0, 6);
 
-                // 👉 상위 6개만 표시
-                const topSix = merged.slice(0, 6);
+                  return (
+                    <>
+                      <div className="grid grid-cols-3 gap-3 pt-3 isolate">
+                        {topSix.map((b) => renderTile(b, "left"))}
+                      </div>
 
-                return (
-                  <>
-                    <div className="grid grid-cols-3 gap-3 pt-3 isolate">
-                      {topSix.map((b) => renderTile(b, "left"))}
-                    </div>
+                      <div className="mt-4 text-xs text-slate-500 text-center space-y-1">
+                        <p>젠 시간 빠른 순 상위 6개 보스입니다.</p>
+                      </div>
 
-                    {/* 안내 문구 */}
-                    <div className="mt-4 text-xs text-slate-500 text-center space-y-1">
-                      <p>젠 시간 빠른 순 상위 6개 보스입니다.</p>
-                      <p>보스 컷 시간은 아래 컷 목록으로 확인해주세요.</p>
-                    </div>
-                  </>
-                );
-              })()
-            )}
+                      {/* 전체 보기 버튼 */}
+                      <div className="mt-3 flex justify-center">
+                        <button
+                          type="button"
+                          className="px-3 py-1.5 rounded-lg border bg-white hover:bg-slate-50 text-sm"
+                          onClick={() => setAllBossOpen(true)}
+                        >
+                          전체 보스 목록 보기
+                        </button>
+                      </div>
+                    </>
+                  );
+                })()
+              )}
+            </div>
           </div>
         </section>
 
-          {/* 중앙: 미입력(비고정) */}
-          <section className="col-span-1 h-full min-h-0 px-1 relative z-0 flex flex-col">
+        {/* 중앙: 미입력(비고정) */}
+        <section className="col-span-1 h-full min-h-0 relative z-0 flex flex-col">
+          <div className="h-full overflow-y-auto pr-4 -mr-4">
             <h2 className="text-base font-semibold mb-2 text-slate-700">잃어버린 보스</h2>
 
-            {/* 스크롤 영역 */}
-            <div className="flex-1 min-h-0 overflow-y-auto">
-            {loading ? (
-              <div className="h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-500">
-                불러오는 중…
-              </div>
-            ) : middleTracked.length === 0 ? (
-              <div className="mt-3 h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-400 italic">
-                {query ? "검색 결과가 없습니다." : "미입력된 보스가 없습니다."}
-              </div>
-            ) : (
-              (() => {
-                const { soon, rest } = splitSoonWithin5m(middleTracked);
-                const merged = [...soon, ...rest];
-                return (
-                  <div className="grid grid-cols-3 gap-3 pt-3">
-                    {merged.map((b) => renderTile(b, "middle"))}
-                  </div>
-                );
-              })()
-            )}
+            <div className="flex-1 min-h-0">
+              {loading ? (
+                <div className="h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-500">
+                  불러오는 중…
+                </div>
+              ) : middleTracked.length === 0 ? (
+                <div className="mt-3 h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-400 italic">
+                  {query ? "검색 결과가 없습니다." : "미입력된 보스가 없습니다."}
+                </div>
+              ) : (
+                (() => {
+                  const { soon, rest } = splitSoonWithin5m(middleTracked);
+                  const merged = [...soon, ...rest];
+                  return (
+                    <div className="grid grid-cols-3 gap-3 pt-3">
+                      {merged.map((b) => renderTile(b, "middle"))}
+                    </div>
+                  );
+                })()
+              )}
+            </div>
           </div>
         </section>
 
         {/* 우측: 고정 보스 */}
-        <section className="col-span-1 h-full min-h-0 px-1 relative z-0 flex flex-col">
-          <h2 className="text-base font-semibold mb-2 text-slate-700">고정 보스</h2>
+        <section className="col-span-1 h-full min-h-0 relative z-0 flex flex-col">
+          <div className="h-full overflow-y-auto pr-4 -mr-4">
+            <h2 className="text-base font-semibold mb-2 text-slate-700">고정 보스</h2>
 
-          {/* 스크롤 영역 */}
-          <div className="flex-1 min-h-0 overflow-y-auto space-y-3">
-            {loading ? (
-              <div className="h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-500">
-                불러오는 중…
-              </div>
-            ) : fixedSorted.length === 0 ? (
-              <div className="mt-3 h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-400 italic">
-                고정 보스가 없습니다.
-              </div>
-            ) : (
-              fixedSorted.map((fb) => {
-                const now = Date.now();
-                const remain = fixedRemainMs(fb, now);                 // +: 남음, -: 지남
-                const overdueKeep = remain < 0 && remain >= -OVERDUE_GRACE_MS;
-                const soon = remain > 0 && remain <= HIGHLIGHT_MS;
-                const afterGrace = remain <= -OVERDUE_GRACE_MS;
-                const isCaught = fixedIsCaughtCycle(fb, now);
-                const postLast = isPostLastWindow(now);
+            <div className="flex-1 min-h-0 space-y-3">
+              {loading ? (
+                <div className="h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-500">
+                  불러오는 중…
+                </div>
+              ) : fixedSorted.length === 0 ? (
+                <div className="mt-3 h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-400 italic">
+                  고정 보스가 없습니다.
+                </div>
+              ) : (
+                fixedSorted.map((fb) => {
+                  const now = Date.now();
+                  const remain = fixedRemainMs(fb, now);
+                  const overdueKeep = remain < 0 && remain >= -OVERDUE_GRACE_MS;
+                  const soon = remain > 0 && remain <= HIGHLIGHT_MS;
+                  const afterGrace = remain <= -OVERDUE_GRACE_MS;
+                  const isCaught = fixedIsCaughtCycle(fb, now);
+                  const postLast = isPostLastWindow(now);
 
-                // 스타일 결정
-                const isBlue = isCaught || postLast || afterGrace;           // 파랑 상태
-                const isRed = soon || overdueKeep;                           // 빨강 상태(깜빡)
-                const wrapClass =
-                  isRed
+                  const isBlue = isCaught || postLast || afterGrace;
+                  const isRed = soon || overdueKeep;
+                  const wrapClass = isRed
                     ? "relative rounded-xl border shadow-sm p-3 text-sm ring-2 ring-rose-400 bg-rose-50/60 animate-blink"
                     : isBlue
                     ? "relative rounded-xl border shadow-sm p-3 text-sm ring-2 ring-sky-300 bg-sky-50/60"
                     : "relative rounded-xl border shadow-sm p-3 text-sm bg-white";
 
-                // 5분 전부터 우하단 카운트(mm:ss 남음)
-                const showCountdown = remain > 0 && remain <= HIGHLIGHT_MS;
-                const countdownBadge = showCountdown ? (
-                  <span className="pointer-events-none absolute right-2 bottom-2 z-20 text-[11px] px-2 py-0.5 rounded-md border bg-white/90 backdrop-blur-sm shadow-sm">
-                    {fmtMMSS2(remain)} 남음
-                  </span>
-                ) : null;
+                  const showCountdown = remain > 0 && remain <= HIGHLIGHT_MS;
+                  const countdownBadge = showCountdown ? (
+                    <span className="pointer-events-none absolute right-2 bottom-2 z-20 text-[11px] px-2 py-0.5 rounded-md border bg-white/90 backdrop-blur-sm shadow-sm">
+                      {fmtMMSS2(remain)} 남음
+                    </span>
+                  ) : null;
 
-                return (
-                  <div key={fb.id} className={wrapClass}>
-                    {countdownBadge}
-                    <div className="flex items-center justify-between">
-                      <div className="font-medium truncate">{fb.name}</div>
-                      <div className="text-xs text-slate-500 ml-2">{fb.location}</div>
+                  return (
+                    <div key={fb.id} className={wrapClass}>
+                      {countdownBadge}
+                      <div className="flex items-center justify-between">
+                        <div className="font-medium truncate">{fb.name}</div>
+                        <div className="text-xs text-slate-500 ml-2">{fb.location}</div>
+                      </div>
+                      <div className="mt-1 text-xs text-slate-600">
+                        젠 시각: <span className="font-semibold">{fmtDaily(fb.genTime)}</span>
+                      </div>
                     </div>
-                    <div className="mt-1 text-xs text-slate-600">
-                      젠 시각: <span className="font-semibold">{fmtDaily(fb.genTime)}</span>
-                    </div>
-                  </div>
-                );
-              })
-            )}
+                  );
+                })
+              )}
+            </div>
           </div>
         </section>
       </div>
@@ -1250,6 +1345,44 @@ async function runInitCutForAll() {
         </div>
       )}
 
+      {importOpen && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl shadow-xl p-4 w-[600px] max-w-[90vw]">
+            <h3 className="text-lg font-semibold mb-2">디코 보스탐 정보 가져오기</h3>
+            <textarea
+              className="w-full border rounded p-2 text-sm font-mono h-64"
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+              placeholder={`예)\n14:32 녹샤 (미입력0회)\n14:32 서드 (미입력0회)\n...`}
+            />
+            <div className="flex justify-end gap-2 mt-3">
+              <button
+                className="px-3 py-2 rounded-xl border hover:bg-slate-100"
+                onClick={() => setImportOpen(false)}
+              >
+                취소
+              </button>
+              <button
+                className="px-3 py-2 rounded-xl bg-slate-900 text-white hover:opacity-90"
+                onClick={async () => {
+                  try {
+                    await postJSON("/v1/dashboard/import-discord", { text: importText });
+                    alert("보스탐 데이터가 반영되었습니다.");
+                    setImportOpen(false);
+                    await loadBosses(); // 상단 새로고침
+                    onForceRefresh?.(); // 하단도 새로고침
+                  } catch (e: any) {
+                    alert(e?.message ?? "업로드 실패");
+                  }
+                }}
+              >
+                저장
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {shareOpen && (
         <div
           className="fixed inset-0 z-[1000] flex items-center justify-center"
@@ -1298,6 +1431,54 @@ async function runInitCutForAll() {
               >
                 닫기
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {allBossOpen && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl shadow-xl p-4 w-[90vw] max-w-3xl h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-base font-semibold">전체 보스 젠 목록</h3>
+              <button
+                type="button"
+                className="px-2 py-1 rounded hover:bg-slate-100"
+                onClick={() => setAllBossOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="py-2 px-3 text-left font-semibold">보스명</th>
+                    <th className="py-2 px-3 text-left font-semibold">젠 시각</th>
+                    <th className="py-2 px-3 text-left font-semibold">남은 시간</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredAll.map((b) => (
+                    <tr key={b.id} className="border-b last:border-b-0 hover:bg-slate-50">
+                      <td className="py-2 px-3 whitespace-nowrap">{b.name}</td>
+                      <td className="py-2 px-3 whitespace-nowrap">
+                        {(() => {
+                          const nextMs = getNextMsGeneric(b);
+                          return fmtTimeHM(Number.isFinite(nextMs) ? nextMs : null);
+                        })()}
+                      </td>
+                      <td className="py-2 px-3 whitespace-nowrap">
+                        {(() => {
+                          const ms = remainingMsFor(b);
+                          const hms = fmtHMS(ms);
+                          return hms != null ? hms : "미입력";
+                        })()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>

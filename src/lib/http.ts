@@ -96,7 +96,11 @@ export async function requestJSON<T>(
 export async function getJSON<T>(path: string, init?: RequestInit): Promise<T> {
   return requestJSON<T>("GET", path, undefined, init);
 }
-export async function postJSON<T>(path: string, body?: any): Promise<T> {
+export async function postJSON<T>(
+  path: string, 
+  body?: any,
+  extraInit?: RequestInit
+): Promise<T> {
   return requestJSON<T>("POST", path, body);
 }
 export async function patchJSON<T>(path: string, body?: any): Promise<T> {

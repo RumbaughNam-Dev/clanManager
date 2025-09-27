@@ -146,7 +146,13 @@ export default function App() {
         </div>
       </header>
 
-      <main className={page === "dashboard" ? "max-w-6xl mx-auto px-5 flex-1 flex flex-col h-[calc(100vh-56px)]" : "max-w-6xl mx-auto px-5 py-6 space-y-6"}>
+      <main
+        className={`max-w-6xl mx-auto px-5 ${
+          page === "dashboard"
+            ? "h-[calc(100vh-56px)] flex flex-col"
+            : "py-6 space-y-6"
+        }`}
+      >
         {page === "dashboard" && <DashboardCombined />}
         {page === "members" && <Members />}
         {page === "timelineList" && <TimelineList />}
