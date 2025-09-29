@@ -20,7 +20,9 @@ export default function App() {
 
   const serverDisplay =
     (user as any)?.serverDisplay ??
-    (typeof localStorage !== "undefined" ? localStorage.getItem("serverDisplay") : "") ??
+    (typeof localStorage !== "undefined"
+      ? localStorage.getItem("serverDisplay")
+      : "") ??
     "";
 
   useEffect(() => {
@@ -37,7 +39,9 @@ export default function App() {
     } else {
       document.body.classList.remove(cls);
     }
-    return () => { document.body.classList.remove(cls); };
+    return () => {
+      document.body.classList.remove(cls);
+    };
   }, [page]);
 
   const roleLabel = (r?: string | null) => {
@@ -91,14 +95,22 @@ export default function App() {
       <header className="sticky top-0 z-40 bg-white/80 backdrop-blur border-b">
         <div className="max-w-6xl mx-auto px-5 h-14 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <span className="text-xl font-extrabold">Clan Manager</span>
+            {/* 🔗 로고 클릭 시 대시보드로 이동 */}
+            <button
+              onClick={() => guardAndNav("dashboard")}
+              className="text-xl font-extrabold focus:outline-none"
+            >
+              Clan Manager
+            </button>
             <nav className="hidden md:flex gap-1">
               {navItems.map((p) => (
                 <button
                   key={p.key}
                   onClick={() => guardAndNav(p.key)}
                   className={`px-3 py-1.5 rounded-xl text-sm ${
-                    page === p.key ? "bg-slate-900 text-white" : "hover:bg-slate-100"
+                    page === p.key
+                      ? "bg-slate-900 text-white"
+                      : "hover:bg-slate-100"
                   }`}
                 >
                   {p.label}

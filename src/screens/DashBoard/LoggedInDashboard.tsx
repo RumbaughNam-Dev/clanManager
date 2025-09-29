@@ -8,6 +8,8 @@ import type { BossDto } from "../../types";
 // ────────────────────────────────
 import { createPortal } from "react-dom";
 
+const DEBUG_FIXED_SORT = false;
+
 /** ───────── 상수 ───────── */
 const MS = 1000;
 const MIN = 60 * MS;
@@ -81,6 +83,7 @@ type FixedBossDto = {
   respawn: number;
   isRandom: boolean;
   lastCutAt: string | null;
+  nextSpawnAt: string | null;
 };
 
 type CountMap = Record<string, number>;
@@ -221,6 +224,21 @@ export default function LoggedInDashboard({
         if (Number.isFinite(newMs)) nextMap.set(b.id, newMs as number);
       }
       lastNextSpawnRef.current = nextMap;
+
+      if (DEBUG_FIXED_SORT) {
+        // 백엔드에서 받은 원시 fixed 배열 상태
+        const ids3637 = ((data.fixed ?? []) as any[]).filter((x) => x?.id === "36" || x?.id === "37" || x?.id === 36 || x?.id === 37);
+        console.group("[fixedRaw from backend]");
+        console.table((data.fixed ?? []).map((f: any) => ({
+          id: String(f.id),
+          name: f.name,
+          genTime: f.genTime,
+          lastCutAt: f.lastCutAt,
+          nextSpawnAt: f.nextSpawnAt ?? null,
+        })));
+        console.log("=> 36/37 only:", ids3637);
+        console.groupEnd();
+      }
     } catch {
       setTrackedRaw([]);
       setForgottenRaw([]);
@@ -806,9 +824,10 @@ async function runInitCutForAll() {
     const now = Date.now();
 
     type Row = {
-      f: FixedBossDto;
-      group: number;  // 0=지남<5m(빨강 상단 고정), 1=곧/대기(정상 정렬), 2=완료/지남>5m(하단, 파랑)
+      f: FixedBossDto & { nextSpawnAt?: string | null };
+      group: number;  // 0=지남<5m, 1=곧/대기, 2=완료/지남>5m
       key: number;
+      reasons: Record<string, any>;
     };
 
     const rows: Row[] = fixedRaw.map((f) => {
@@ -819,22 +838,68 @@ async function runInitCutForAll() {
       const postLast = isPostLastWindow(now);              // 00~05시 전체 파랑
       const afterGrace = remain <= -OVERDUE_GRACE_MS;      // 지남 5분 초과
 
-      // 파랑: 잡힘이거나(또는 00~05시) 혹은 지남 5분 초과
       const isBlue = caught || postLast || afterGrace;
 
-      // 그룹 결정
       let group = 1;
       if (overdueKeep) group = 0;
       else if (isBlue) group = 2;
 
-      // 정렬 키
       let key: number;
-      if (group === 0) key = Math.abs(remain);
-      else if (group === 1) key = Number.isFinite(remain) ? remain : Number.POSITIVE_INFINITY;
-      else key = fixedOccMs(f.genTime, now);
 
-      return { f, group, key };
+      // 🔹 기감 1층(36) / 2층(37) → nextSpawnAt 기준 정렬
+      if (f.id === "36" || f.id === "37") {
+        if ((f as any).nextSpawnAt) {
+          const ns = new Date((f as any).nextSpawnAt as string).getTime();
+          const diff = ns - now;                          // ← 절대시간 → 남은시간으로 변환
+          key = Number.isFinite(diff) ? diff : Number.POSITIVE_INFINITY;
+        } else {
+          key = Number.POSITIVE_INFINITY;
+        }
+        group = 1; // 파랑 규칙에 안 끌려가도록 대기 그룹 고정
+      } else {
+        // 기본 로직(남은시간 기반)
+        if (group === 0) key = Math.abs(remain);
+        else if (group === 1) key = Number.isFinite(remain) ? remain : Number.POSITIVE_INFINITY;
+        else key = fixedOccMs(f.genTime, now);
+      }
+
+      const reasons = {
+        id: String(f.id),
+        name: (f as any).name,
+        nextSpawnAt: (f as any).nextSpawnAt ?? null,
+        remain,
+        overdueKeep,
+        soon,
+        caught,
+        postLast,
+        afterGrace,
+        isBlue,
+        group,
+        key,
+      };
+
+      return { f: f as any, group, key, reasons };
     });
+
+    // 정렬 전 스냅샷
+    if (DEBUG_FIXED_SORT) {
+      console.group("[fixedSorted] BEFORE sort");
+      console.table(rows.map(r => ({
+        id: r.reasons.id,
+        name: r.reasons.name,
+        group: r.group,
+        key: r.key,
+        nextSpawnAt: r.reasons.nextSpawnAt,
+        remain: r.reasons.remain,
+        soon: r.reasons.soon,
+        overdueKeep: r.reasons.overdueKeep,
+        caught: r.reasons.caught,
+        postLast: r.reasons.postLast,
+        afterGrace: r.reasons.afterGrace,
+        isBlue: r.reasons.isBlue,
+      })));
+      console.groupEnd();
+    }
 
     rows.sort((a, b) => {
       if (a.group !== b.group) return a.group - b.group;
@@ -842,6 +907,23 @@ async function runInitCutForAll() {
       if (b.f.id === "18" && a.f.id !== "18") return -1;
       return a.key - b.key;
     });
+
+    // 정렬 후 스냅샷
+    if (DEBUG_FIXED_SORT) {
+      console.group("[fixedSorted] AFTER sort");
+      console.table(rows.map(r => ({
+        id: String(r.f.id),
+        name: (r.f as any).name,
+        group: r.group,
+        key: r.key,
+        nextSpawnAt: (r.f as any).nextSpawnAt ?? null,
+      })));
+      // 36/37 집중 로그
+      const focus = rows.filter(r => String(r.f.id) === "36" || String(r.f.id) === "37")
+                        .map(r => r.reasons);
+      console.log("36/37 reasons:", focus);
+      console.groupEnd();
+    }
 
     return rows.map((r) => r.f);
   }, [fixedRaw, uiTick]);
@@ -1264,7 +1346,20 @@ async function runInitCutForAll() {
                         <div className="text-xs text-slate-500 ml-2">{fb.location}</div>
                       </div>
                       <div className="mt-1 text-xs text-slate-600">
-                        젠 시각: <span className="font-semibold">{fmtDaily(fb.genTime)}</span>
+                        젠 시각:{" "}
+                        <span className="font-semibold">
+                          {(() => {
+                            const ns = (fb as any).nextSpawnAt as string | null | undefined;
+                            if (ns) {
+                              // HH:mm 형태로 표기 (서버가 ISO 내려주므로 시각 포맷으로)
+                              const t = new Date(ns).getTime();
+                              return fmtTimeHM(Number.isFinite(t) ? t : null) ?? "—";
+                            }
+                            // nextSpawnAt이 없으면 기존 genTime 사용 (고정보스 일반 케이스)
+                            if (fb.genTime != null) return fmtDaily(fb.genTime);
+                            return "—";
+                          })()}
+                        </span>
                       </div>
                     </div>
                   );

@@ -31,6 +31,7 @@ type TimelineDto = {
   createdBy: string;
   items: LootItemDto[];
   distributions?: DistributionDto[];
+  noGenCount: number;
 };
 
 type ListResp = {
@@ -321,6 +322,39 @@ return (
             ) : (
               tableRows.map((t) => {
                 const s = calcRow(t);
+
+                // 멍 처리 전용 행
+                if ((t.items?.length ?? 0) === 0 && (t.noGenCount ?? 0) > 0) {
+                  return (
+                    <tr
+                      key={t.id}
+                      className="border-t text-gray-400 italic"
+                    >
+                      <td className="py-2">{fmt(t.cutAt)}</td>
+                      <td>{t.bossName}</td>
+                      <td>{t.createdBy}</td>
+                      <td colSpan={3}>멍 처리 {t.noGenCount}회</td>
+                      <td>
+                        <button
+                          onClick={async () => {
+                            try {
+                              await postJSON("/v1/boss-timelines/" + t.id + "/daze/cancel");
+                              alert("멍 처리 1회가 취소되었습니다.");
+                              reload();
+                            } catch (e: any) {
+                              alert(e?.message ?? "멍 취소 실패");
+                            }
+                          }}
+                          className="px-2 py-1 rounded bg-slate-400 text-white text-xs"
+                        >
+                          멍 처리 취소
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                }
+
+                // 기존 컷 처리 행
                 return (
                   <tr key={t.id} className="border-t">
                     <td className="py-2">{fmt(t.cutAt)}</td>
@@ -332,18 +366,32 @@ return (
                       <Pill tone={s.tone as any}>{s.label}</Pill>
                     </td>
                     <td>
-                      <button
-                        onClick={() => {
-                          setManageOpen(false);
-                          setTimeout(() => {
+                      <div className="flex gap-3">
+                        <button
+                          onClick={() => {
                             setActiveTimelineId(t.id);
                             setManageOpen(true);
-                          }, 0); // ✅ 강제로 닫았다가 다시 열기
-                        }}
-                        className="px-2 py-1 rounded bg-slate-900 text-white text-xs"
-                      >
-                        보스 컷 관리
-                      </button>
+                          }}
+                          className="px-2 py-1 rounded bg-slate-900 text-white text-xs"
+                        >
+                          보스 컷 관리
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (!confirm("정말 삭제하시겠습니까?")) return;
+                            try {
+                              await postJSON("/v1/boss-timelines/" + t.id + "/delete");
+                              alert("삭제되었습니다.");
+                              reload();
+                            } catch (e: any) {
+                              alert(e?.message ?? "삭제 실패");
+                            }
+                          }}
+                          className="px-2 py-1 rounded bg-red-600 text-white text-xs"
+                        >
+                          삭제
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
