@@ -6,10 +6,10 @@ export function formatNow() {
 
 export function toIsoFromLocal(s: string) {
   const m = s.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/);
-  if (!m) return new Date(s).toISOString();
+  if (!m) return new Date(s).toString();
   const [_, Y, M, D, h, m2, s2] = m;
   const d = new Date(+Y, +M - 1, +D, +h, +m2, +s2);
-  return d.toISOString();
+  return d.toString();
 }
 
 export function roleLabel(r?: string | null) {

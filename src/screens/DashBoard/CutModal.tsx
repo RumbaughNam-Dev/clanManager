@@ -264,7 +264,7 @@ export default function CutModal({
               selected={new Date(cutAtInput)}
               locale="ko"
               onChange={(date: Date | null) => {
-                if (date) setCutAtInput(date.toISOString());
+                if (date) setCutAtInput(date.toString());
               }}
               showTimeSelect
               timeIntervals={1}

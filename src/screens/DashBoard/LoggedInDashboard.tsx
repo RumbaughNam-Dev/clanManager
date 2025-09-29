@@ -463,7 +463,7 @@ async function runInitCutForAll() {
   const baseMs = parseTodayHHMM(initTime);
   if (!baseMs) { alert("시간 형식은 HH:mm 입니다. 예) 07:30"); return; }
 
-  const cutAtIso = new Date(baseMs + 5 * 60 * 1000).toISOString(); // +5분
+  const cutAtIso = new Date(baseMs + 5 * 60 * 1000).toString(); // +5분
   const normals: BossDto[] = [...trackedRaw, ...forgottenRaw];
   // id 중복 제거
   const seen = new Set<string>();
@@ -496,7 +496,7 @@ async function runInitCutForAll() {
       try {
         const timelineId = await getTimelineIdForBossName(b.name);
         if (timelineId) {
-          await postJSON(`/v1/boss-timelines/${timelineId}/daze`, { atIso: new Date().toISOString() });
+          await postJSON(`/v1/boss-timelines/${timelineId}/daze`, { atIso: new Date().toString() });
         }
       } catch (e) {
         console.warn("[init-daze] failed:", b.name, e);
@@ -994,7 +994,7 @@ async function runInitCutForAll() {
     const d = new Date();
     d.setSeconds(0, 0);
     d.setHours(hh, mm, 0, 0);
-    const iso = d.toISOString();
+    const iso = d.toString();
 
     return { boss, iso };
   }
@@ -1035,7 +1035,7 @@ async function runInitCutForAll() {
   async function instantCut(b: BossDto) {
     try {
       await postJSON(`/v1/dashboard/bosses/${b.id}/cut`, {
-        cutAtIso: new Date().toISOString(),
+        cutAtIso: new Date().toString(),
         mode: "TREASURY",
         items: [],
         participants: [],
@@ -1055,7 +1055,7 @@ async function runInitCutForAll() {
         alert("해당 보스의 최근 컷 타임라인을 찾을 수 없습니다.");
         return;
       }
-      await postJSON(`/v1/boss-timelines/${timelineId}/daze`, { atIso: new Date().toISOString() });
+      await postJSON(`/v1/boss-timelines/${timelineId}/daze`, { atIso: new Date().toString() });
       await loadBosses();
       onForceRefresh?.();   // ✅ 하단 새로고침
     } catch {

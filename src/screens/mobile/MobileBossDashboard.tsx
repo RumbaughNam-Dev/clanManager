@@ -106,7 +106,7 @@ export default function MobileBossDashboard() {
 
     const d = new Date();
     d.setHours(hh, mm, 0, 0);
-    return { boss, iso: d.toISOString() };
+    return { boss, iso: d.toString() };
   }
 
   async function quickSave() {

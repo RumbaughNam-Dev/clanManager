@@ -46,7 +46,7 @@ export default function MobileCutModal({ open, boss, onClose, onSaved }: Props) 
     // localStr 예: "2025-09-05T14:20"
     const d = new Date(localStr);
     if (isNaN(d.getTime())) return null;
-    return d.toISOString();
+    return d.toString();
     // 필요 시 타임존 보정 로직을 별도로 둘 수 있음
   }
 

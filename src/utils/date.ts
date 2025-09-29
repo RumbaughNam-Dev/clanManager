@@ -1,5 +1,5 @@
-export function formatDateTime(isoString: string) {
-    const d = new Date(isoString);
+export function formatDateTime(String: string) {
+    const d = new Date(String);
     const yyyy = d.getFullYear();
     const MM = String(d.getMonth() + 1).padStart(2, "0");
     const dd = String(d.getDate()).padStart(2, "0");
