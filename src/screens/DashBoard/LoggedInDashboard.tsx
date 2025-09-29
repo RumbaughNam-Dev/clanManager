@@ -106,6 +106,7 @@ function fmtHMS(ms: number): string | null {
   const s = totalSec % 60;
   return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
+// genTime(분 단위) → HH:mm (KST 그대로 사용)
 function fmtDaily(genTime: unknown) {
   const n = genTime == null ? NaN : Number(genTime);
   if (!Number.isFinite(n)) return "—";
@@ -186,13 +187,16 @@ export default function LoggedInDashboard({
     return d.getTime();
   }
 
-  // HH:mm 로 포맷
-  function fmtTimeHM(ms: number | null | undefined): string {
-    if (!Number.isFinite(ms as number)) return "—";
-    const d = new Date(ms as number);
-    const hh = String(d.getHours()).padStart(2, "0");
-    const mm = String(d.getMinutes()).padStart(2, "0");
-    return `${hh}:${mm}`;
+  function fmtTimeHM(dt: number | string | null | undefined): string {
+    if (!dt) return "—";
+    const d = new Date(dt);
+    if (isNaN(d.getTime())) return "—";
+    return d.toLocaleTimeString("ko-KR", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+      timeZone: "Asia/Seoul",
+    });
   }
 
   function nextFixedOccMs(genTime: number | null | undefined, nowMs = Date.now()): number | null {
@@ -227,7 +231,7 @@ export default function LoggedInDashboard({
 
       if (DEBUG_FIXED_SORT) {
         // 백엔드에서 받은 원시 fixed 배열 상태
-        const ids3637 = ((data.fixed ?? []) as any[]).filter((x) => x?.id === "36" || x?.id === "37" || x?.id === 36 || x?.id === 37);
+        const ids3637 = ((data.fixed ?? []) as any[]).filter((x) => x?.id === "37" || x?.id === "38" || x?.id === 37 || x?.id === 38);
         console.group("[fixedRaw from backend]");
         console.table((data.fixed ?? []).map((f: any) => ({
           id: String(f.id),
@@ -825,18 +829,18 @@ async function runInitCutForAll() {
 
     type Row = {
       f: FixedBossDto & { nextSpawnAt?: string | null };
-      group: number;  // 0=지남<5m, 1=곧/대기, 2=완료/지남>5m
+      group: number;
       key: number;
       reasons: Record<string, any>;
     };
 
     const rows: Row[] = fixedRaw.map((f) => {
-      const remain = fixedRemainMs(f, now);                // >0: 남음, <0: 지남
-      const overdueKeep = remain < 0 && remain >= -OVERDUE_GRACE_MS; // 지남~5분 유예
-      const soon = remain > 0 && remain <= HIGHLIGHT_MS;   // 5분 이내
-      const caught = fixedIsCaughtCycle(f, now);           // 이번 사이클 이미 잡힘(파랑)
-      const postLast = isPostLastWindow(now);              // 00~05시 전체 파랑
-      const afterGrace = remain <= -OVERDUE_GRACE_MS;      // 지남 5분 초과
+      const remain = fixedRemainMs(f, now);
+      const overdueKeep = remain < 0 && remain >= -OVERDUE_GRACE_MS;
+      const soon = remain > 0 && remain <= HIGHLIGHT_MS;
+      const caught = fixedIsCaughtCycle(f, now);
+      const postLast = isPostLastWindow(now);
+      const afterGrace = remain <= -OVERDUE_GRACE_MS;
 
       const isBlue = caught || postLast || afterGrace;
 
@@ -846,18 +850,17 @@ async function runInitCutForAll() {
 
       let key: number;
 
-      // 🔹 기감 1층(36) / 2층(37) → nextSpawnAt 기준 정렬
-      if (f.id === "36" || f.id === "37") {
-        if ((f as any).nextSpawnAt) {
-          const ns = new Date((f as any).nextSpawnAt as string).getTime();
-          const diff = ns - now;                          // ← 절대시간 → 남은시간으로 변환
+      // 🔹 기감 1층(37) / 2층(38) → nextSpawnAt 기준
+      if (f.id === "37" || f.id === "38") {
+        if (f.nextSpawnAt) {
+          const ns = new Date(f.nextSpawnAt).getTime();
+          const diff = ns - now;
           key = Number.isFinite(diff) ? diff : Number.POSITIVE_INFINITY;
         } else {
           key = Number.POSITIVE_INFINITY;
         }
-        group = 1; // 파랑 규칙에 안 끌려가도록 대기 그룹 고정
+        group = 1; // 항상 대기 그룹
       } else {
-        // 기본 로직(남은시간 기반)
         if (group === 0) key = Math.abs(remain);
         else if (group === 1) key = Number.isFinite(remain) ? remain : Number.POSITIVE_INFINITY;
         else key = fixedOccMs(f.genTime, now);
@@ -881,49 +884,12 @@ async function runInitCutForAll() {
       return { f: f as any, group, key, reasons };
     });
 
-    // 정렬 전 스냅샷
-    if (DEBUG_FIXED_SORT) {
-      console.group("[fixedSorted] BEFORE sort");
-      console.table(rows.map(r => ({
-        id: r.reasons.id,
-        name: r.reasons.name,
-        group: r.group,
-        key: r.key,
-        nextSpawnAt: r.reasons.nextSpawnAt,
-        remain: r.reasons.remain,
-        soon: r.reasons.soon,
-        overdueKeep: r.reasons.overdueKeep,
-        caught: r.reasons.caught,
-        postLast: r.reasons.postLast,
-        afterGrace: r.reasons.afterGrace,
-        isBlue: r.reasons.isBlue,
-      })));
-      console.groupEnd();
-    }
-
     rows.sort((a, b) => {
       if (a.group !== b.group) return a.group - b.group;
       if (a.f.id === "18" && b.f.id !== "18") return 1;
       if (b.f.id === "18" && a.f.id !== "18") return -1;
       return a.key - b.key;
     });
-
-    // 정렬 후 스냅샷
-    if (DEBUG_FIXED_SORT) {
-      console.group("[fixedSorted] AFTER sort");
-      console.table(rows.map(r => ({
-        id: String(r.f.id),
-        name: (r.f as any).name,
-        group: r.group,
-        key: r.key,
-        nextSpawnAt: (r.f as any).nextSpawnAt ?? null,
-      })));
-      // 36/37 집중 로그
-      const focus = rows.filter(r => String(r.f.id) === "36" || String(r.f.id) === "37")
-                        .map(r => r.reasons);
-      console.log("36/37 reasons:", focus);
-      console.groupEnd();
-    }
 
     return rows.map((r) => r.f);
   }, [fixedRaw, uiTick]);
@@ -932,11 +898,24 @@ async function runInitCutForAll() {
     const now = Date.now();
     let bestId: string | null = null;
     let bestMs = Number.POSITIVE_INFINITY;
+
     for (const f of fixedSorted) {
       if (f.id === "18") continue;
       if (fixedIsCaughtCycle(f, now)) continue;
-      const n = fixedOccMs(f.genTime, now);
-      if (n < bestMs) { bestMs = n; bestId = f.id; }
+
+      let n: number | null = null;
+
+      // 🔹 기감 1/2층은 nextSpawnAt 사용
+      if (f.id === "37" || f.id === "38") {
+        n = f.nextSpawnAt ? new Date(f.nextSpawnAt).getTime() : null;
+      } else {
+        n = fixedOccMs(f.genTime, now);
+      }
+
+      if (n != null && n < bestMs) {
+        bestMs = n;
+        bestId = f.id;
+      }
     }
     return bestId;
   }, [fixedSorted, uiTick]);
