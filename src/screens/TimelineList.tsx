@@ -76,6 +76,21 @@ type RowCalc = { label: string; tone: RowTone; kind:
   | "TRE_ALL"
 };
 
+// 판매/분배 완료 여부 계산 헬퍼
+function isAllSold(t: TimelineDto) {
+  const items = t.items ?? [];
+  return items.length > 0 && items.every(it => it.isSold === true);
+}
+function isAllPaid(t: TimelineDto) {
+  const dists = t.distributions ?? [];
+  // 분배 데이터가 아예 없으면 '완료'로 보지 않음
+  if (dists.length === 0) return false;
+  return dists.every(d => d.isPaid === true);
+}
+function isTimelineComplete(t: TimelineDto) {
+  return isAllSold(t) && isAllPaid(t);
+}
+
 /**
  * 규칙 요약
  * - 드랍템 없음 → [회색] "드랍템 없음"
@@ -179,24 +194,38 @@ export default function TimelineList({ refreshTick }: { refreshTick?: number }) 
   }, [fromDate, toDate]);
 
   const reload = async () => {
-    abortRef.current?.abort();
-    const ac = new AbortController();
-    abortRef.current = ac;
-
     setLoading(true);
     try {
-      const data = await postJSON<ListResp>(
-        "/v1/boss-timelines",
-        { fromDate, toDate },   // ✅ body만 직접 전달
-        { signal: ac.signal }   // ✅ 옵션은 따로 전달
-      );
-      setRows(data.items ?? []);
+      const data = await postJSON<ListResp>("/v1/boss-timelines", { fromDate, toDate });
+
+      const sorted = (data.items ?? []).sort((a, b) => {
+        const aDone = isTimelineComplete(a);
+        const bDone = isTimelineComplete(b);
+
+        // 미완료가 먼저
+        if (aDone !== bDone) return aDone ? 1 : -1;
+
+        // 같은 그룹이면 최신순
+        return new Date(b.cutAt).getTime() - new Date(a.cutAt).getTime();
+      });
+
+      setRows(sorted);
     } catch {
       setRows([]);
     } finally {
       setLoading(false);
     }
   };
+
+  function isTimelineComplete(timeline: TimelineDto) {
+    // 아이템 중 판매 안된 게 있으면 미완료
+    if (timeline.items?.some(it => !it.isSold)) return false;
+
+    // 판매는 됐지만 분배 안된 게 있으면 미완료
+    if (timeline.distributions?.some(d => !d.isPaid)) return false;
+
+    return true;
+  }
 
   useEffect(() => {
     reload();
@@ -301,6 +330,10 @@ return (
               <th>기록자</th>
               <th>참여</th>
               <th>드랍 요약</th>
+              {/* ▼ 추가 */}
+              <th>판매완료</th>
+              <th>분배완료</th>
+              {/* ▲ 추가 */}
               <th>상태</th>
               <th>액션</th>
             </tr>
@@ -323,45 +356,69 @@ return (
               tableRows.map((t) => {
                 const s = calcRow(t);
 
-                // 멍 처리 전용 행
-                if ((t.items?.length ?? 0) === 0 && (t.noGenCount ?? 0) > 0) {
+                // 👉 보스 컷 관리에서 아무 입력도 안 한 경우 (아이템, 루팅자, 참여자, 분배방식 모두 없음)
+                const noData =
+                  (t.items?.length ?? 0) === 0 &&
+                  (t.distributions?.length ?? 0) === 0 &&
+                  (t.noGenCount ?? 0) === 0;
+
+                if (noData) {
                   return (
-                    <tr
-                      key={t.id}
-                      className="border-t text-gray-400 italic"
-                    >
+                    <tr key={t.id} className="border-t text-gray-400">
                       <td className="py-2">{fmt(t.cutAt)}</td>
                       <td>{t.bossName}</td>
                       <td>{t.createdBy}</td>
-                      <td colSpan={3}>멍 처리 {t.noGenCount}회</td>
+                      <td>-</td> {/* 참여 */}
+                      <td>-</td> {/* 드랍 요약 */}
+                      <td>-</td> {/* 판매완료 */}
+                      <td>-</td> {/* 분배완료 */}
                       <td>
-                        <button
-                          onClick={async () => {
-                            try {
-                              await postJSON("/v1/boss-timelines/" + t.id + "/daze/cancel");
-                              alert("멍 처리 1회가 취소되었습니다.");
-                              reload();
-                            } catch (e: any) {
-                              alert(e?.message ?? "멍 취소 실패");
-                            }
-                          }}
-                          className="px-2 py-1 rounded bg-slate-400 text-white text-xs"
-                        >
-                          멍 처리 취소
-                        </button>
+                        <div className="flex gap-3">
+                          <button
+                            onClick={() => {
+                              setActiveTimelineId(t.id);
+                              setManageOpen(true);
+                            }}
+                            className="px-2 py-1 rounded bg-slate-900 text-white text-xs"
+                          >
+                            보스 컷 관리
+                          </button>
+                          <button
+                            onClick={async () => {
+                              if (!confirm("정말 삭제하시겠습니까?")) return;
+                              try {
+                                await postJSON("/v1/boss-timelines/" + t.id + "/delete");
+                                alert("삭제되었습니다.");
+                                reload();
+                              } catch (e: any) {
+                                alert(e?.message ?? "삭제 실패");
+                              }
+                            }}
+                            className="px-2 py-1 rounded bg-red-600 text-white text-xs"
+                          >
+                            삭제
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
                 }
 
-                // 기존 컷 처리 행
+                // 👉 기존 컷 처리 행 (calcRow 적용)
                 return (
-                  <tr key={t.id} className="border-t">
+                  <tr
+                    key={t.id}
+                    className={`border-t ${
+                      s.kind === "DIST_SALE_DONE_UNPAID" ? "bg-orange-100" : ""
+                    }`}
+                  >
                     <td className="py-2">{fmt(t.cutAt)}</td>
                     <td>{t.bossName}</td>
                     <td>{t.createdBy}</td>
                     <td>{countParticipants(t)}명</td>
                     <td>{buildDropsSummary(t)}</td>
+                    <td>{t.items.every(it => it.isSold) ? "O" : "X"}</td>
+                    <td>{s.kind === "DIST_PAID" ? "O" : "X"}</td>
                     <td>
                       <Pill tone={s.tone as any}>{s.label}</Pill>
                     </td>
