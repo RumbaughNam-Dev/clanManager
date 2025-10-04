@@ -45,14 +45,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         // ✅ 백엔드 사양: POST /v1/auth/me (JwtAuth)
-        const me = await postJSON<{ ok: true; user: UserShape & { clanName?: string | null; serverDisplay?: string | null } }>(
-          "/v1/auth/me",
-          {}
-        );
-        setUser({
-          ...me.user,
-          clanName: me.user.clanName ?? localStorage.getItem("clanName") ?? null,
-        });
+        try {
+          const me = await postJSON<{ ok: true; user: UserShape & { clanName?: string | null; serverDisplay?: string | null } }>(
+            "/v1/auth/me",
+            {}
+          );
+          setUser({
+            ...me.user,
+            clanName: me.user.clanName ?? localStorage.getItem("clanName") ?? null,
+          });
+        } catch (err: any) {
+          // ✅ 토큰 불일치나 만료 시 자동 초기화
+          if (err?.status === 401) {
+            localStorage.removeItem("accessToken");
+            localStorage.removeItem("refreshToken");
+            window.location.reload();
+          }
+          setUser(null);
+        }
       } catch {
         cleanupTokens();
         setUser(null);
