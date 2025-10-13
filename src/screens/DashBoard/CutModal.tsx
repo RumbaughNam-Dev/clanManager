@@ -15,6 +15,7 @@ type MemberRow = {
   loginId: string;
   role: "SUPERADMIN" | "ADMIN" | "LEADER" | "USER";
   createdAt: string;
+  timelineId?: string | null;
 };
 
  type CutModalProps = {
@@ -23,6 +24,7 @@ type MemberRow = {
    onClose: () => void;
    onSaved: () => void;
    defaultCutAt: string;
+   timelineId?: string | null; // 컷 수정 모드용 (없으면 컷 생성)
  };
 
 type Mode = "DISTRIBUTE" | "TREASURY";
@@ -39,6 +41,7 @@ export default function CutModal({
   onClose,
   onSaved,
   defaultCutAt,
+  timelineId
 }: CutModalProps) {
   const { user } = useAuth();
 
@@ -69,6 +72,8 @@ export default function CutModal({
   const bossId = boss?.id ?? null;
   const didInitRef = useRef(false);
   const lastInitBossIdRef = useRef<string | null>(null);
+
+  const isComposingRef = useRef(false);
 
   useEffect(() => {
     if (!open) {
@@ -190,47 +195,91 @@ export default function CutModal({
   }
 
   async function submitCut() {
-    if (!boss) return;
+    if (!boss && !timelineId) return;
 
-    // 비어있지 않은 행만 취합
-    const filled = rows.filter((r) => r.name.trim());
-    const items = filled.map((r) => r.name.trim()); // 호환용
-    const itemsEx = filled.map((r) => ({
-      name: r.name.trim(),
-      lootUserId: r.looterLoginId ? r.looterLoginId : null, // 선택 안 했으면 null
+    // 이미지 업로드
+    const imageFileName = await uploadImageIfAny();
+
+    const filled = rows.filter(r => r.name.trim());
+    const itemsEx = filled.map(r => ({
+      itemName: r.name.trim(),
+      lootUserId: r.looterLoginId || null,
     }));
     const participants = Array.from(selectedIds);
 
-    // ✅ 루팅자 ‘미선택’ 허용. 분배 모드면 참여자만 체크
-    if (filled.length > 0 && mode === "DISTRIBUTE" && participants.length === 0) {
-      alert("분배 모드에서는 참여자를 1명 이상 선택해야 합니다.");
-      return;
-    }
-
     setSubmitting(true);
     try {
-      const imageFileName = await uploadImageIfAny();
-
-      const payload = {
-        cutAtIso: toIsoFromLocal(cutAtInput),
-        looterLoginId: null as string | null, // 더 이상 단일 값 사용 안 함 (호환 위해 남겨두되 null)
-        items,       // 호환용
-        itemsEx,     // ★ 서버가 이걸 사용해서 per-item lootUserId 저장해야 함
-        mode,
-        participants,
-        imageFileName,
-      };
-
-      // 디버그: 실제 전송값 확인
-      console.log("[CutModal] submit payload:", payload);
-
-      await postJSON(`/v1/dashboard/bosses/${boss.id}/cut`, payload);
+      if (timelineId) {
+        // ✅ UPDATE 흐름
+        const payload = {
+          cutAtIso: toIsoFromLocal(cutAtInput),     // 수정 허용
+          mode,
+          itemsEx,                                   // 전체 스냅샷
+          participants,
+          imageFileName,
+        };
+        await postJSON(`/v1/dashboard/boss-timelines/${timelineId}`, payload);
+      } else {
+        // 기존 CREATE 흐름
+        const payload = {
+          cutAtIso: toIsoFromLocal(cutAtInput),
+          looterLoginId: null,
+          items: filled.map(r => r.name.trim()),
+          itemsEx,
+          mode,
+          participants,
+          imageFileName,
+        };
+        await postJSON(`/v1/dashboard/bosses/${boss!.id}/cut`, payload);
+      }
       onSaved();
     } catch (e: any) {
-      alert(e?.message ?? "컷 저장 실패");
+      alert(e?.message ?? "저장 실패");
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function handleMemberQuickPickKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key !== "Enter") return;
+
+    // 🔒 IME 조합 중 Enter는 무시 (한글 '울대' 같은 케이스)
+    // 일부 브라우저는 keyCode 229, React nativeEvent.isComposing도 제공
+    // @ts-ignore
+    const composing = (e.nativeEvent && (e.nativeEvent as any).isComposing) || isComposingRef.current;
+    // @ts-ignore
+    const isIME229 = (e as any).which === 229 || (e as any).keyCode === 229;
+    if (composing || isIME229) return;
+
+    e.preventDefault();
+
+    // ✅ 상태값(memberSearch) 말고 현재 input의 최신 값 사용
+    const inputEl = e.currentTarget as HTMLInputElement;
+    const q = inputEl.value.trim();
+    if (!q) return;
+
+    // 정확 아이디 일치
+    const found = members.find((m) => m.loginId === q);
+    if (!found) {
+      alert("등록되지 않은 혈맹원 입니다.");
+      return;
+    }
+
+    setSelectedIds((prev) => {
+      if (prev.has(found.loginId)) return prev;
+      const next = new Set(prev);
+      next.add(found.loginId);
+      return next;
+    });
+
+    // 입력창 정리
+    setMemberSearch("");
+    inputEl.value = "";   // 즉시 비우기 (state 반영 기다리지 않음)
+    // ✅ 포커스 유지: 비운 뒤 바로 다시 포커스 & 캐럿 맨 끝
+    requestAnimationFrame(() => {
+      inputEl.focus();
+      try { inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length); } catch {}
+    });
   }
 
   return (
@@ -377,12 +426,19 @@ export default function CutModal({
         {/* 우측: 참여자 */}
         <div className="space-y-3">
           <div>
-            <label className="block text-sm mb-1">참여자 검색</label>
+            <label className="block text-sm mb-1">참여자 입력 (Enter로 체크)</label>
             <input
               className="w-full border rounded-lg px-3 py-2"
-              placeholder="아이디 검색"
+              placeholder="아이디 입력 후 Enter로 체크"
               value={memberSearch}
               onChange={(e) => setMemberSearch(e.target.value)}
+              onKeyDown={handleMemberQuickPickKeyDown}
+              onCompositionStart={() => { isComposingRef.current = true; }}
+              onCompositionEnd={(e) => {
+                isComposingRef.current = false;
+                // 조합이 끝난 최종 문자열을 상태에 반영(선택)
+                setMemberSearch((e.currentTarget as HTMLInputElement).value);
+              }}
             />
           </div>
 

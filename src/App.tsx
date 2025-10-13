@@ -11,7 +11,7 @@ import Login from "./screens/Auth/Login";
 import Signup from "./screens/Auth/Signup";
 import AdminClanRequests from "./screens/SuperAdmin/AdminClanRequests";
 import AdminBossCycle from "./screens/SuperAdmin/AdminBossCycle";
-import ResponsiveDashboard from "./screens/DashBoard/ResponsiveDashboard";
+import AuthEnforcer from "@/components/auth/AuthEnforcer";
 import DashboardCombined from "./screens/DashboardCombined";
 
 export default function App() {
@@ -43,6 +43,13 @@ export default function App() {
       document.body.classList.remove(cls);
     };
   }, [page]);
+
+  useEffect(() => {
+    const publicPages: PageKey[] = ["dashboard", "login", "signup"];
+    if (!user && !publicPages.includes(page)) {
+      setPage("dashboard");
+    }
+  }, [user, page]);
 
   const roleLabel = (r?: string | null) => {
     switch (r) {
@@ -83,8 +90,7 @@ export default function App() {
   const guardAndNav = (next: PageKey) => {
     const publicPages: PageKey[] = ["dashboard", "login", "signup"];
     if (!user && !publicPages.includes(next)) {
-      alert("로그인 해 주세요.");
-      setPage("login");
+      setPage("dashboard"); // ← 로그인 페이지 말고 대시보드로
       return;
     }
     setPage(next);
@@ -130,8 +136,7 @@ export default function App() {
                 <button
                   onClick={() => {
                     logout();
-                    // 필요 시 전체 새로고침:
-                    // window.location.reload();
+                    setPage("dashboard");
                   }}
                   className="px-3 py-1.5 rounded-xl hover:bg-slate-100"
                 >
@@ -165,7 +170,7 @@ export default function App() {
             : "py-6 space-y-6"
         }`}
       >
-        {page === "dashboard" && <DashboardCombined />}
+        {page === "dashboard" && <Dashboard />}
         {page === "members" && <Members />}
         {page === "timelineList" && <TimelineList />}
         {page === "timelineDetail" && <TimelineDetail role={effectiveRole} />}

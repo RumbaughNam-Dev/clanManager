@@ -57,22 +57,7 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
   const [savingItemId, setSavingItemId] = useState<string | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
-  const [showCutModal, setShowCutModal] = useState(false);
-
-  useEffect(() => {
-    // data가 null일 수 있으므로 안전 검사 추가
-    if (!open) return;
-    if (data == null) {
-      // 아직 로드 안 된 상태면 디폴트 동작: 모달 닫음(또는 열지 않음)
-      setShowCutModal(false);
-      return;
-    }
-    if (data.items.length === 0 && data.distributions.length === 0) {
-      setShowCutModal(true);
-    } else {
-      setShowCutModal(false);
-    }
-  }, [open, data]);
+  const modalBodyRef = useRef<HTMLDivElement | null>(null);
 
   function fmtAbs(s?: string | null) {
     if (!s) return "—";
@@ -146,22 +131,6 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, timelineId]);
 
-  if (data && data.items.length === 0 && data.distributions.length === 0) {
-    return (
-      <CutModal
-        open={showCutModal}
-        boss={{ id: data.bossMetaId!, name: data.bossName }}
-        onClose={() => setShowCutModal(false)}
-        onSaved={() => {
-          setShowCutModal(false);
-          reloadDetail();
-          onSaved?.();
-        }}
-        defaultCutAt={data.cutAt ?? formatLocalDateTime(new Date())}
-      />
-    );
-  }
-
   const isTreasuryItem = (it: LootItemDto) => (it.isTreasury ?? it.toTreasury) === true;
 
   const itemDistStats = (itemId: string) => {
@@ -212,6 +181,35 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
     if (!activeItemId) return false;
     return d.lootItemId === activeItemId;
   });
+
+  // ─────────────────────────────────────────────
+  // [새 기능] 참여자 빠른 선택: 아이디 입력 후 Enter → 해당 혈원 체크박스 '체크'
+  //  - 목록을 필터링하지 않음
+  //  - 정확한 아이디가 없으면 alert
+  //  - 체크박스는 DOM에서 data-loginid 로 찾고 .click()으로 onChange 트리거
+  // ─────────────────────────────────────────────
+  const participantListRef = useRef<HTMLDivElement | null>(null);
+  const [quickPick, setQuickPick] = useState("");
+  const handleQuickPickEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    const q = quickPick.trim();
+    if (!q) return;
+    // 검색 범위: 참여자 체크박스 리스트 컨테이너 → 없으면 모달 전체
+    const root: ParentNode = participantListRef.current ?? document;
+    // loginId 는 영문/숫자 가정. 특수문자가 있다면 CSS.escape 사용 권장.
+    const target = root.querySelector<HTMLInputElement>(`input[type="checkbox"][data-loginid="${q}"]`);
+    if (!target) {
+      alert("등록되지 않은 혈맹원 입니다.");
+      return;
+    }
+    if (!target.checked) {
+      // React onChange 트리거를 위해 click 사용 (직접 checked=true 지정 X)
+      target.click();
+    }
+    setQuickPick("");
+    (e.currentTarget as HTMLInputElement).blur(); // 모바일 키보드 내리기
+  };
 
   async function completeSale(itemId: string) {
     if (!timelineId || !data) return;
@@ -301,7 +299,7 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
       closeOnOverlay={false}
       closeOnEsc={false}
     >
-      <div>
+      <div ref={modalBodyRef}>
         {loading && <div className="text-sm text-slate-500">불러오는 중…</div>}
         {!loading && err && (
           <div className="text-sm text-rose-600">
@@ -462,7 +460,7 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
             </div>
 
             {/* 선택 아이템의 참여자 분배 리스트 */}
-            <div className="border rounded-lg">
+            <div className="border rounded-lg" ref={participantListRef}>
               <div className="px-3 py-2 text-xs text-slate-500 border-b bg-slate-50 rounded-t-lg">
                 선택한 아이템의 참여자 / 분배여부
               </div>
@@ -501,7 +499,12 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
 
                       return (
                         <tr key={`${d.lootItemId}-${d.recipientLoginId}`} className="border-t">
-                          <td className="py-2 px-2">{d.recipientLoginId}</td>
+                           <td className="py-2 px-2">
+                           {/* ✅ 체크박스가 별도 리스트(우측 상단)에 있을 경우,
+                               그 체크박스 쪽에 data-loginid 를 반드시 달아주세요.
+                               만약 이 줄에서도 체크 UI를 렌더링한다면 다음과 같이 data-loginid 속성을 추가하세요. */}
+                           {d.recipientLoginId}
+                         </td>
                           <td className="px-2">
                             {d.isPaid ? (
                               <span className="text-emerald-600">완료</span>
@@ -549,17 +552,6 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
           </div>
         )}
       </div>
-      <CutModal
-        open={showCutModal}
-        boss={data ? { id: data.bossMetaId ?? "", name: data.bossName } : null}
-        onClose={() => setShowCutModal(false)}
-        onSaved={() => {
-          setShowCutModal(false);
-          reloadDetail();
-          onSaved?.();
-        }}
-        defaultCutAt={data?.cutAt ?? formatLocalDateTime(new Date())}
-      />
     </Modal>
   );
 }

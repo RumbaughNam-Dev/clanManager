@@ -12,13 +12,13 @@ export default function DashboardCombined() {
 
   return (
     <div className="h-full min-h-0 overflow-hidden flex flex-col p-3 gap-3 bg-slate-100">
-      {/* 상단: 대시보드 (70%) */}
-      <div className="flex-[7] min-h-0 overflow-hidden border rounded-xl bg-white shadow-sm p-3">
+      {/* 상단: 대시보드 (60%) */}
+      <div className="flex-[6] min-h-0 overflow-hidden border rounded-xl bg-white shadow-sm p-3">
         <LoggedInDashboard refreshTick={refreshTick} onForceRefresh={forceRefresh} />
       </div>
 
-      {/* 하단: 잡은 보스 관리 (30%) */}
-      <div className="flex-[3] min-h-0 overflow-hidden border rounded-xl bg-white shadow-sm p-3">
+      {/* 하단: 잡은 보스 관리 (40%) */}
+      <div className="flex-[4] min-h-0 overflow-hidden border rounded-xl bg-white shadow-sm p-3">
         <TimelineList refreshTick={refreshTick} />
       </div>
     </div>

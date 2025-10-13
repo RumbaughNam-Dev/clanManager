@@ -1,7 +1,9 @@
-import type React from "react";
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { postJSON } from "@/lib/http";
 import type { BossDto } from "../../types";
+
+import BossCutManageModal from "@/components/modals/BossCutManageModal";
+import CutModal from "@/screens/DashBoard/CutModal";
 
 // ────────────────────────────────
 // LocationHover: Tooltip with parent-managed hover state
@@ -32,6 +34,20 @@ const BADGE_TOP  = "33.333%";  // 높이 1/3 지점//
 type Props = {
   refreshTick?: number;
   onForceRefresh?: () => void;
+};
+
+// 보스 타임라인 상세 최소 타입 (이 파일 전용)
+type BossTimelineDetailLite = {
+  ok: true;
+  item: {
+    bossMetaId: string | null;
+    id: string;
+    bossName: string;
+    cutAt: string;
+    createdBy: string;
+    items: Array<{ id: string; itemName: string; isSold?: boolean; soldPrice?: number | null; looterLoginId?: string | null }>;
+    distributions: Array<{ lootItemId: string | null; recipientLoginId: string; isPaid: boolean; amount?: number | null }>;
+  };
 };
 
 //  ── 초성 검색 유틸 ──
@@ -127,6 +143,7 @@ export default function LoggedInDashboard({
   const [fixedRaw, setFixedRaw] = useState<FixedBossDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(() => {
     try {
@@ -175,6 +192,30 @@ export default function LoggedInDashboard({
   const [initOpen, setInitOpen] = useState(false);
   const [initTime, setInitTime] = useState("07:30");
   const [initBusy, setInitBusy] = useState(false);
+
+  // ──────────────── 컷/관리 팝업 상태 ────────────────
+  const [cutModalState, setCutModalState] = useState<{ open: boolean; boss: BossDto | null; timelineId: string | null }>({
+    open: false,
+    boss: null,
+    timelineId: null,
+  });
+
+  const [manageModalState, setManageModalState] = useState<{ open: boolean; timelineId: string | null }>({
+    open: false,
+    timelineId: null,
+  });
+
+  // 보스 검색 후 초기화 헬퍼
+  const clearSearch = useCallback(() => {
+    setQuery("");
+    // 입력값 지우고 포커스까지 제거(모바일 키보드 닫힘 포함)
+    const el = searchInputRef.current;
+    if (el) {
+      // value는 상태로 제어되지만 혹시 모를 브라우저 캐싱 대응
+      el.value = "";
+      el.blur();
+    }
+  }, []);
 
   // HH:mm → 오늘 날짜의 ms
   function parseTodayHHMM(hhmm: string): number | null {
@@ -258,21 +299,20 @@ export default function LoggedInDashboard({
 
   /** 최근 컷 타임라인 id 조회(보스명) */
   type ListTimelinesLite = { ok: true; items: Array<{ id: string | number; bossName: string; cutAt: string }> };
-  async function getTimelineIdForBossName(bossName: string): Promise<string | null> {
+  async function getTimelineIdForBossName(bossName: string): Promise<{ id: string | null; empty: boolean }> {
     const key = bossName?.trim();
-    if (!key) return null;
-    const cached = timelineIdCacheRef.current.get(key);
-    if (cached) return cached;
+    if (!key) return { id: null, empty: true };
 
     try {
-      const resp = await postJSON<ListTimelinesLite>("/v1/boss-timelines");
-      const found = (resp.items || []).find((it) => it.bossName === key);
-      if (!found) return null;
-      const id = String(found.id);
-      timelineIdCacheRef.current.set(key, id);
-      return id;
+      const resp = await postJSON<{ ok: true; id: string | null; empty: boolean }>(
+        "/v1/dashboard/boss-timelines/latest-id",
+        { bossName: key, preferEmpty: true }
+      );
+      const id = resp?.id ?? null;
+      const empty = !!resp?.empty;
+      return { id, empty };
     } catch {
-      return null;
+      return { id: null, empty: true };
     }
   }
 
@@ -505,6 +545,7 @@ async function runInitCutForAll() {
 
     alert("보스 시간 초기화 완료!");
     await loadBosses();
+    clearSearch();
     setInitOpen(false);
   } finally {
     setInitBusy(false);
@@ -1022,8 +1063,9 @@ async function runInitCutForAll() {
       });
 
       setQuickCutText("");
-      await loadBosses();      // ⬅️ 상단 섹션 갱신
-      onForceRefresh?.();      // ⬅️ 하단 섹션도 강제 갱신 추가
+      await loadBosses();      // 상단 섹션 갱신
+      clearSearch();           // ✅ 검색어/결과 초기화
+      onForceRefresh?.();      // 하단 섹션 강제 갱신
     } catch (e: any) {
       alert(e?.message ?? "간편컷 저장 실패");
     } finally {
@@ -1041,6 +1083,7 @@ async function runInitCutForAll() {
         participants: [],
       });
       await loadBosses();
+      clearSearch();        // ✅ 컷 후 검색어/결과 초기화
       onForceRefresh?.();   // ✅ 하단 새로고침
     } catch (e: any) {
       alert(e?.message ?? "즉시 컷 실패");
@@ -1057,6 +1100,7 @@ async function runInitCutForAll() {
       }
       await postJSON(`/v1/boss-timelines/${timelineId}/daze`, { atIso: new Date().toString() });
       await loadBosses();
+      clearSearch();
       onForceRefresh?.();   // ✅ 하단 새로고침
     } catch {
       alert("멍 기록에 실패했습니다. 잠시 후 다시 시도해 주세요.");
@@ -1098,6 +1142,7 @@ async function runInitCutForAll() {
         {/* 검색(좌/중만) */}
           <div className="relative w-auto min-w-[140px] max-w-[180px]">
             <input
+              ref={searchInputRef}
               className="w-full border rounded-xl px-2 py-1.5 pr-6 text-sm"
               placeholder="보스 이름/위치 검색"
               value={query}
@@ -1555,6 +1600,32 @@ async function runInitCutForAll() {
             </div>
           </div>
         </div>
+      )}
+
+      {manageModalState.open && (
+        <BossCutManageModal
+          open={manageModalState.open}
+          timelineId={manageModalState.timelineId}
+          onClose={() => setManageModalState({ open: false, timelineId: null })}
+          onSaved={() => {
+            loadBosses();
+            setManageModalState({ open: false, timelineId: null });
+          }}
+        />
+      )}
+
+      {cutModalState.open && (
+        <CutModal
+          open={cutModalState.open}
+          boss={cutModalState.boss}
+          timelineId={cutModalState.timelineId}
+          defaultCutAt={new Date().toString()}
+          onClose={() => setCutModalState({ open: false, boss: null, timelineId: null })}
+          onSaved={() => {
+            loadBosses();
+            setCutModalState({ open: false, boss: null, timelineId: null });
+          }}
+        />
       )}
     </div>
   );

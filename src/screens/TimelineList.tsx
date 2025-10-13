@@ -5,6 +5,7 @@ import Card from "../components/common/Card";
 import Pill from "../components/common/Pill";
 import { postJSON } from "@/lib/http";
 import BossCutManageModal from "../components/modals/BossCutManageModal";
+import CutModal from "./DashBoard/CutModal";
 
 type LootItemDto = {
   id: string;
@@ -169,6 +170,12 @@ export default function TimelineList({ refreshTick }: { refreshTick?: number }) 
   const [manageOpen, setManageOpen] = useState(false);
   const [activeTimelineId, setActiveTimelineId] = useState<string | null>(null);
 
+  // ⬇️ 추가: 입력용(CutModal) 상태
+  const [cutOpen, setCutOpen] = useState(false);
+  const [cutTimelineId, setCutTimelineId] = useState<string | null>(null);
+  const [cutBoss, setCutBoss] = useState<{ id: string; name: string } | null>(null);
+  const [cutDefaultAt, setCutDefaultAt] = useState<string>(new Date().toString());
+
   // AbortController로 중복요청 취소
   const abortRef = useRef<AbortController | null>(null);
 
@@ -256,10 +263,9 @@ export default function TimelineList({ refreshTick }: { refreshTick?: number }) 
         case "ALL":
           return true;
         case "NOT_SOLD":
-          // 판매전 + 드랍없음도 이 필터에서 보고 싶다면 포함
           return s.kind === "DIST_SALE_BEFORE" || s.kind === "DROP_NONE" || s.kind === "TRE_NONE";
         case "SOLD":
-          return s.kind === "DIST_SALE_DONE_UNPAID"; // 명확히 '판매완료(분배미완)'만
+          return s.kind === "DIST_SALE_DONE_UNPAID";
         case "PAID":
           return s.kind === "DIST_PAID";
         case "TREASURY":
@@ -267,12 +273,52 @@ export default function TimelineList({ refreshTick }: { refreshTick?: number }) 
       }
     });
 
+    // 1순위: 정보가 입력(아이템 있음) && 분배 완료되지 않은 건
+    const isPriority = (t: TimelineDto) => {
+      const hasItems = (t.items?.length ?? 0) > 0;
+      const done = isTimelineComplete(t);
+      return hasItems && !done;
+    };
+
+    // 시간 비교(최신 먼저)
+    const byCutDesc = (a: TimelineDto, b: TimelineDto) =>
+      new Date(b.cutAt).getTime() - new Date(a.cutAt).getTime();
+
     return filtered.sort((a, b) => {
-      const ta = new Date(a.cutAt).getTime();
-      const tb = new Date(b.cutAt).getTime();
-      return tb - ta;
+      const ra = isPriority(a) ? 0 : 1;
+      const rb = isPriority(b) ? 0 : 1;
+      if (ra !== rb) return ra - rb;    // 우선순위가 높은 것 먼저
+      return byCutDesc(a, b);           // 같은 그룹 내에서는 보스 컷 시간 순(최신 우선)
     });
   }, [rows, q, filter]);
+
+  function handleOpenManage(t: TimelineDto) {
+    const noData =
+      (t.items?.length ?? 0) === 0 &&
+      (t.distributions?.length ?? 0) === 0 &&
+      (t.noGenCount ?? 0) === 0;
+
+    if (noData) {
+      // 입력 정보가 하나도 없으면 → 입력 팝업(CutModal)만 연다
+      setCutBoss({ id: "", name: t.bossName }); // id는 생성에 안 써도 무방
+      setCutTimelineId(t.id);                   // 빈 타임라인에 이어서 입력
+      setCutDefaultAt(t.cutAt || new Date().toString());
+      setCutOpen(true);
+
+      // 관리 팝업은 닫기
+      setManageOpen(false);
+      setActiveTimelineId(null);
+    } else {
+      // 데이터가 있으면 → 관리 팝업만 열기
+      setActiveTimelineId(t.id);
+      setManageOpen(true);
+
+      // 입력 팝업은 닫기
+      setCutOpen(false);
+      setCutTimelineId(null);
+      setCutBoss(null);
+    }
+  }
 
 // src/screens/TimelineList.tsx
 
@@ -375,10 +421,7 @@ return (
                       <td>
                         <div className="flex gap-3">
                           <button
-                            onClick={() => {
-                              setActiveTimelineId(t.id);
-                              setManageOpen(true);
-                            }}
+                            onClick={() => handleOpenManage(t)}
                             className="px-2 py-1 rounded bg-slate-900 text-white text-xs"
                           >
                             보스 컷 관리
@@ -425,10 +468,7 @@ return (
                     <td>
                       <div className="flex gap-3">
                         <button
-                          onClick={() => {
-                            setActiveTimelineId(t.id);
-                            setManageOpen(true);
-                          }}
+                          onClick={() => handleOpenManage(t)}
                           className="px-2 py-1 rounded bg-slate-900 text-white text-xs"
                         >
                           보스 컷 관리
@@ -465,13 +505,37 @@ return (
       open={manageOpen}
       timelineId={activeTimelineId}
       onClose={() => {
-          setManageOpen(false);
-          setActiveTimelineId(null);   // ✅ 팝업 닫을 때 초기화
-        }
-      }
+        setManageOpen(false);
+        setActiveTimelineId(null);
+      }}
       onSaved={async () => {
         try {
-          const data = await postJSON<ListResp>("/v1/boss-timelines");
+          const data = await postJSON<ListResp>("/v1/boss-timelines", { fromDate, toDate });
+          setRows(data.items ?? []);
+        } catch {
+          // ignore
+        }
+      }}
+    />
+
+    {/* 입력 팝업 (정보가 없을 때만 열림) */}
+    <CutModal
+      open={cutOpen}
+      boss={cutBoss}                      // { id: "", name: t.bossName } 형태
+      timelineId={cutTimelineId}          // 빈 타임라인에 이어서 입력
+      defaultCutAt={cutDefaultAt}
+      onClose={() => {
+        setCutOpen(false);
+        setCutTimelineId(null);
+        setCutBoss(null);
+      }}
+      onSaved={async () => {
+        setCutOpen(false);
+        setCutTimelineId(null);
+        setCutBoss(null);
+        // 저장 후 목록 갱신
+        try {
+          const data = await postJSON<ListResp>("/v1/boss-timelines", { fromDate, toDate });
           setRows(data.items ?? []);
         } catch {
           // ignore
