@@ -22,7 +22,7 @@ const ALERT_THRESHOLDS = [5 * MIN, 1 * MIN] as const;
 // 임박(5분 이내) 하이라이트
 const HIGHLIGHT_MS = 5 * MIN;
 // 비고정: 지남 유예(파랑 유지) 5분
-const OVERDUE_GRACE_MS = 5 * MIN;
+const OVERDUE_GRACE_MS = 10 * MIN;
 // 비고정: 지남 3분째 경고 음성(한 번만)
 const MISSED_WARN_MS = 3 * MIN;
 
