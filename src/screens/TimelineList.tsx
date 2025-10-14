@@ -225,13 +225,20 @@ export default function TimelineList({ refreshTick }: { refreshTick?: number }) 
   };
 
   function isTimelineComplete(timeline: TimelineDto) {
-    // 아이템 중 판매 안된 게 있으면 미완료
-    if (timeline.items?.some(it => !it.isSold)) return false;
+    const items = timeline.items ?? [];
 
-    // 판매는 됐지만 분배 안된 게 있으면 미완료
-    if (timeline.distributions?.some(d => !d.isPaid)) return false;
+    // 1) 판매 미완료 아이템이 있으면 무조건 미완료
+    const allSold = items.length > 0 && items.every(it => it.isSold === true);
+    if (!allSold) return false;
 
-    return true;
+    // 2) 전 아이템이 '혈비 귀속'이면(= 분배 불필요) 판매완료만으로 완료 처리
+    const allTreasury = items.length > 0 && items.every(it => (it.toTreasury ?? it.isTreasury) === true);
+    if (allTreasury) return true;
+
+    // 3) 일반 분배 방식은 '모든 분배 완료'까지 완료로 본다
+    const dists = timeline.distributions ?? [];
+    const allPaid = dists.length > 0 && dists.every(d => d.isPaid === true);
+    return allPaid;
   }
 
   useEffect(() => {

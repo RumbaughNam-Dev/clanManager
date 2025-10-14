@@ -355,7 +355,61 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
 
                         <td className="px-3">
                           {treasury ? (
-                            <div className="text-emerald-600 font-medium">혈비귀속 완료</div>
+                            it.isSold ? (
+                              <div className="flex items-center gap-3">
+                                <div className="font-semibold text-emerald-600">
+                                  {typeof it.soldPrice === "number" ? it.soldPrice.toLocaleString() : "-"}
+                                </div>
+                                <div className="text-xs text-emerald-500">혈비귀속 판매완료</div>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <input
+                                  className="border rounded-lg px-2 py-1 w-[18rem]"
+                                  placeholder="세금을 제한 실제 정산가 입력"
+                                  value={sellInput[it.id] ?? ""}
+                                  onChange={(e) => setSellInput((p) => ({ ...p, [it.id]: e.target.value }))}
+                                  onKeyDown={(e) => { 
+                                    if (e.key === "Enter") {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      if (allowSale) {
+                                        completeSale(it.id);
+                                      } else {
+                                        alert("판매처리는 보스컷 작성자 또는 해당 아이템 루팅자만 가능합니다.");
+                                      }
+                                    }
+                                   }}
+                                  inputMode="numeric"
+                                  disabled={!allowSale}
+                                  title={allowSale ? "" : "보스컷 작성자 또는 해당 아이템 루팅자만 판매처리가 가능합니다."}
+                                />
+                                <div
+                                  role="button"
+                                  tabIndex={0}
+                                  className={`px-3 py-1.5 rounded-lg text-white select-none ${
+                                    savingItemId === it.id
+                                      ? "bg-gray-300"
+                                      : allowSale
+                                      ? "bg-slate-900 hover:opacity-90 cursor-pointer"
+                                      : "bg-gray-300 cursor-not-allowed"
+                                  }`}
+                                  onMouseDown={(ev) => { ev.preventDefault(); ev.stopPropagation(); }}
+                                  onClick={(ev) => {
+                                    ev.preventDefault();
+                                    ev.stopPropagation();
+                                    if (!allowSale) {
+                                      alert("판매처리는 보스컷 작성자 또는 해당 아이템 루팅자만 가능합니다.");
+                                      return;
+                                    }
+                                    completeSale(it.id);
+                                  }}
+                                  aria-disabled={savingItemId === it.id || !allowSale}
+                                >
+                                  {savingItemId === it.id ? "저장 중…" : "판매완료"}
+                                </div>
+                              </div>
+                            )
                           ) : it.isSold ? (
                             <div className="flex items-center gap-3">
                               <div className="font-semibold">
@@ -369,12 +423,18 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
                                 className="border rounded-lg px-2 py-1 w-[18rem]"
                                 placeholder="세금을 제한 실제 정산가 입력"
                                 value={sellInput[it.id] ?? ""}
-                                onChange={(e) =>
-                                  setSellInput((p) => ({ ...p, [it.id]: e.target.value }))
-                                }
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") e.preventDefault();
-                                }}
+                                onChange={(e) => setSellInput((p) => ({ ...p, [it.id]: e.target.value }))}
+                                onKeyDown={(e) => { 
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    if (allowSale) {
+                                      completeSale(it.id);
+                                    } else {
+                                      alert("판매처리는 보스컷 작성자 또는 해당 아이템 루팅자만 가능합니다.");
+                                    }
+                                  }
+                                 }}
                                 inputMode="numeric"
                                 disabled={!allowSale}
                                 title={allowSale ? "" : "보스컷 작성자 또는 해당 아이템 루팅자만 판매처리가 가능합니다."}
@@ -400,7 +460,6 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
                                   completeSale(it.id);
                                 }}
                                 aria-disabled={savingItemId === it.id || !allowSale}
-                                title={allowSale ? "" : "보스컷 작성자 또는 해당 아이템 루팅자만 판매처리가 가능합니다."}
                               >
                                 {savingItemId === it.id ? "저장 중…" : "판매완료"}
                               </div>
@@ -410,7 +469,9 @@ export default function BossCutManageModal({ open, timelineId, onClose, onSaved 
 
                         <td className="px-3">
                           {treasury ? (
-                            <span className="text-emerald-600">혈비귀속 완료</span>
+                            it.isSold
+                              ? <span className="text-emerald-600">혈비귀속 판매완료</span>
+                              : <span className="text-amber-600">혈비귀속 (판매전)</span>
                           ) : (
                             renderNonTreasuryStatus(it)
                           )}

@@ -203,7 +203,7 @@ export default function CutModal({
     const filled = rows.filter(r => r.name.trim());
     const itemsEx = filled.map(r => ({
       itemName: r.name.trim(),
-      lootUserId: r.looterLoginId || null,
+      lootUserId: (r.looterLoginId?.trim() || r.looterInput?.trim() || null),
     }));
     const participants = Array.from(selectedIds);
 
@@ -212,15 +212,15 @@ export default function CutModal({
       if (timelineId) {
         // ✅ UPDATE 흐름
         const payload = {
-          cutAtIso: toIsoFromLocal(cutAtInput),     // 수정 허용
+          cutAtIso: toIsoFromLocal(cutAtInput),
           mode,
-          itemsEx,                                   // 전체 스냅샷
+          itemsEx,
           participants,
           imageFileName,
         };
         await postJSON(`/v1/dashboard/boss-timelines/${timelineId}`, payload);
       } else {
-        // 기존 CREATE 흐름
+        // CREATE 흐름
         const payload = {
           cutAtIso: toIsoFromLocal(cutAtInput),
           looterLoginId: null,

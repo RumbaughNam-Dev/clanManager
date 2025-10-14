@@ -776,18 +776,26 @@ async function runInitCutForAll() {
     );
   }
 
-  /** 리스트를 '곧(≤5분)'과 나머지로 분리 (작은 타일만 사용) */
-  function splitSoonWithin5m(list: BossDto[]) {
+  // 기존 splitSoonWithin5m 함수 지우고 아래로 교체
+  function prioritizeForTop(list: BossDto[]) {
+    const overdueKeep: BossDto[] = [];
     const soon: BossDto[] = [];
     const rest: BossDto[] = [];
 
     for (const b of list) {
-      const remain = remainingMsFor(b);
-      const isSoon = remain > 0 && remain <= HIGHLIGHT_MS;
-      if (isSoon) soon.push(b);
-      else rest.push(b);
+      const r = remainingMsFor(b);
+      if (r < 0 && r >= -OVERDUE_GRACE_MS) overdueKeep.push(b);      // 🔴 유예 중(빨간 깜빡이 유지)
+      else if (r > 0 && r <= HIGHLIGHT_MS) soon.push(b);             // ⏱ 임박(5분 이내)
+      else rest.push(b);                                             // 그 외
     }
-    return { soon, rest };
+
+    // 가독성 위해 각 그룹 내부도 '남은 시간' 기준 오름차순
+    const byRemainAsc = (a: BossDto, b: BossDto) => remainingMsFor(a) - remainingMsFor(b);
+    overdueKeep.sort(byRemainAsc);
+    soon.sort(byRemainAsc);
+    rest.sort(byRemainAsc);
+
+    return [...overdueKeep, ...soon, ...rest];
   }
 
   /** 좌측(진행중) */
@@ -1261,9 +1269,9 @@ async function runInitCutForAll() {
                 </div>
               ) : (
                 (() => {
-                  const { soon, rest } = splitSoonWithin5m(leftTracked);
-                  const merged = [...soon, ...rest];
-                  const topSix = merged.slice(0, 6);
+                  // ✅ 유예 중(젠 지나고 10분 이내) → 임박(≤5분) → 나머지 순으로 우선 정렬
+                  const prioritized = prioritizeForTop(leftTracked);
+                  const topSix = prioritized.slice(0, 6);
 
                   return (
                     <>
@@ -1309,11 +1317,11 @@ async function runInitCutForAll() {
                 </div>
               ) : (
                 (() => {
-                  const { soon, rest } = splitSoonWithin5m(middleTracked);
-                  const merged = [...soon, ...rest];
+                  // ⬇️ splitSoonWithin5m 대신 우선순위 정렬 사용
+                  const prioritized = prioritizeForTop(middleTracked);
                   return (
                     <div className="grid grid-cols-3 gap-3 pt-3">
-                      {merged.map((b) => renderTile(b, "middle"))}
+                      {prioritized.map((b) => renderTile(b, "middle"))}
                     </div>
                   );
                 })()
