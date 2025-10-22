@@ -99,7 +99,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <header className="sticky top-0 z-40 bg-white/80 backdrop-blur border-b">
-        <div className="max-w-6xl mx-auto px-5 h-14 flex items-center justify-between gap-4">
+        <div className="mx-auto w-full max-w-[1920px] px-6 h-14 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             {/* 🔗 로고 클릭 시 대시보드로 이동 */}
             <button
@@ -164,7 +164,7 @@ export default function App() {
       </header>
 
       <main
-        className={`max-w-6xl mx-auto px-5 ${
+        className={`mx-auto w-full max-w-[1920px] px-6 ${
           page === "dashboard"
             ? "h-[calc(100vh-56px)] flex flex-col"
             : "py-6 space-y-6"
