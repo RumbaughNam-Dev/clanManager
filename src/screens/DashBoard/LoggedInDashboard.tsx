@@ -225,6 +225,35 @@ function kstRangeMs(fromDate: string, toDate: string): { start: number; end: num
   return { start: s, end: e };
 }
 
+// 한국어 로케일("YYYY. M. D. 오전/오후 h:mm:ss")까지 파싱하는 느슨한 파서
+function toMsLoose(dt?: string | null): number {
+  if (!dt) return NaN;
+
+  // 1) 표준/일반 문자열 먼저 시도
+  const n = new Date(dt).getTime();
+  if (Number.isFinite(n)) return n;
+
+  // 2) 한국어 로케일: 2025. 10. 21. 오전 7:35:00
+  const m = /^\s*(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})\.\s*(오전|오후)\s*(\d{1,2}):(\d{2}):(\d{2})\s*$/.exec(dt);
+  if (m) {
+    const y = parseInt(m[1], 10);
+    const mo = parseInt(m[2], 10) - 1;
+    const d = parseInt(m[3], 10);
+    const ap = m[4]; // 오전/오후
+    let H = parseInt(m[5], 10);
+    const MM = parseInt(m[6], 10);
+    const SS = parseInt(m[7], 10);
+    if (ap === "오후" && H !== 12) H += 12;
+    if (ap === "오전" && H === 12) H = 0;
+
+    // 로컬 타임존 기준으로 생성 (KST 환경에서 기대값과 일치)
+    const msLocal = new Date(y, mo, d, H, MM, SS).getTime();
+    if (Number.isFinite(msLocal)) return msLocal;
+  }
+
+  return NaN;
+}
+
 /** ───────── 컴포넌트 ───────── */
 export default function LoggedInDashboard({
   refreshTick,
@@ -402,7 +431,7 @@ export default function LoggedInDashboard({
       const items: RecentTimelineRow[] = (resp?.items ?? [])
         .filter(x => {
           const { start, end } = kstRangeMs(recentFromDate, recentToDate);
-          const cutMs = new Date(x.cutAt).getTime();
+          const cutMs = toMsLoose(x.cutAt);
           return Number.isFinite(cutMs) && cutMs >= start && cutMs <= end;
         })
         .map(x => ({
@@ -479,7 +508,7 @@ export default function LoggedInDashboard({
     const forgottenNextMap = new Map<string, number>();
     for (const b of forgottenRaw) {
       if (!b.lastCutAt || !b.respawn || b.respawn <= 0) { forgottenNextMap.set(b.id, Number.POSITIVE_INFINITY); continue; }
-      const lastMs = new Date(b.lastCutAt).getTime();
+      const lastMs = toMsLoose(b.lastCutAt);
       if (!Number.isFinite(lastMs)) { forgottenNextMap.set(b.id, Number.POSITIVE_INFINITY); continue; }
       const step = Math.max(1, Math.round(b.respawn * 60 * 1000));
       const diff = now - lastMs;
@@ -552,9 +581,9 @@ export default function LoggedInDashboard({
 
   /** ───────── 미입력 계산 ───────── */
   function computeEffectiveMiss(b: BossDto, now = Date.now()): number {
-    if (!b.isRandom) return 0;
+    // 비고정 보스 전체 대상으로 계산. respawn 없으면 미입력 계산 불가 → 0
     const respawnMin = Number(b.respawn ?? 0);
-    if (respawnMin <= 0) return 0;
+    if (!Number.isFinite(respawnMin) || respawnMin <= 0) return 0;
     const respawnMs = respawnMin * 60 * 1000;
 
     if (!b.lastCutAt) {
@@ -565,7 +594,7 @@ export default function LoggedInDashboard({
       return Math.max(0, Math.floor(elapsedMin / respawnMin));
     }
 
-    const lastMs = new Date(b.lastCutAt).getTime();
+    const lastMs = toMsLoose(b.lastCutAt);
     if (!Number.isFinite(lastMs) || now <= lastMs) return 0;
 
     const diff = now - lastMs;
@@ -1215,7 +1244,7 @@ export default function LoggedInDashboard({
         </section>
 
         {/* 우측: 잡은 보스 이력 */}
-        <aside className="overflow-y-auto border-l pl-3">
+        <aside className="overflow-y-auto overflow-x-hidden border-l pl-3 pr-4 [scrollbar-gutter:stable_both-edges]">
           <h2 className="text-base font-semibold mb-2 text-slate-700">잡은 보스 이력</h2>
 
           {/* 기간 표시(텍스트) + 달력 버튼: 한 줄 */}
@@ -1266,7 +1295,7 @@ export default function LoggedInDashboard({
                   value={recentFromDate}
                   onChange={(e) => setRecentFromDate(e.currentTarget.value)}
                   max={recentToDate}
-                  className="absolute top-[115%] left-0 w-[180px] h-[28px] opacity-0 cursor-pointer"
+                  className="absolute top-full left-0 w-px h-px opacity-0"
                   // opacity-0 이지만 레이아웃 상 존재하므로 picker 앵커가 버튼 아래로 뜸
                 />
                 <input
@@ -1275,7 +1304,7 @@ export default function LoggedInDashboard({
                   value={recentToDate}
                   onChange={(e) => setRecentToDate(e.currentTarget.value)}
                   min={recentFromDate}
-                  className="absolute top-[115%] left-0 w-[180px] h-[28px] opacity-0 cursor-pointer"
+                  className="absolute top-full left-0 w-px h-px opacity-0"
                 />
               </div>
             </div>
@@ -1358,7 +1387,7 @@ export default function LoggedInDashboard({
       </div>
 
       {/* 하단 20%: 고정 보스 */}
-      <div className="flex-[1.5] min-h-0 border-t mt-3 pt-2 overflow-x-auto">
+      <div className="flex-[1.6] min-h-0 border-t mt-3 pt-2 overflow-x-auto">
         <h2 className="text-base font-semibold mb-2 text-slate-700">
           고정 보스
         </h2>
