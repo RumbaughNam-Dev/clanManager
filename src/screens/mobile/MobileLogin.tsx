@@ -8,8 +8,8 @@ type Props = {
 
 export default function MobileLogin({ onGoSignup }: Props) {
   return (
-    <div className="fixed inset-0 bg-black text-white flex flex-col justify-center items-center">
-      <div className="w-full px-5 max-w-[400px]">
+    <div className="fixed inset-[5%] bg-black text-white">
+      <div className="w-full h-full">
         <Login onGoSignup={onGoSignup} />
       </div>
     </div>
