@@ -85,7 +85,7 @@ export default function Login({ onGoSignup }: Props) {
               className="w-full border rounded-lg px-3 py-2"
               value={loginId}
               onChange={(e) => setLoginId(e.target.value)}
-              placeholder="아이디"
+              placeholder="아이디 입력"
             />
           </div>
           <div>
@@ -95,7 +95,7 @@ export default function Login({ onGoSignup }: Props) {
               className="w-full border rounded-lg px-3 py-2"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="비밀번호"
+              placeholder="비밀번호 입력"
             />
           </div>
           <div className="flex items-center justify-between">
@@ -115,7 +115,7 @@ export default function Login({ onGoSignup }: Props) {
               onClick={() => onGoSignup?.()}
               className="text-sm text-blue-600 hover:underline"
             >
-              아직 계정이 없으신가요? 가입하기
+              혈맹 등록요청
             </button>
           </div>
         </form>

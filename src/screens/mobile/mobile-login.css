@@ -73,3 +73,64 @@
 .mobile-login .form-label {
   color: #ffffff !important;
 }
+
+/* === MobileLogin: 제목/부제 1.5배 확대 === */
+.mobile-login h1{
+  font-size: 1.5em !important;       /* base 대비 1.5배 */
+  line-height: 1.15 !important;
+}
+.mobile-login h1 + p {                /* 제목 바로 다음 설명문 */
+  font-size: 1.5em !important;
+  line-height: 1.35 !important;
+  opacity: .95;
+}
+
+/* === 버튼과 보조문구는 1.5배 더 작게(= 기본 대비 1/1.5) === */
+.mobile-login form [type="submit"],
+.mobile-login button[type="submit"],
+.mobile-login .btn-primary,
+.mobile-login .btn-submit{
+  font-size: calc(1em / 1.5) !important;  /* 0.666…배 */
+  font-weight: 700;
+}
+
+.mobile-login form a,
+.mobile-login .auth-secondary-action,
+.mobile-login .signup-link{
+  font-size: calc(1em / 1.5) !important;  /* 링크/보조문구 축소 */
+}
+
+/* === 인풋 테두리 강화 + 배경/포커스 === */
+.mobile-login input,
+.mobile-login textarea,
+.mobile-login select{
+  color: #fff !important;
+  caret-color: #fff !important;
+  background-color: rgba(255,255,255,0.08) !important; /* 살짝 밝게 */
+  border: 2px solid rgba(255,255,255,0.35) !important;  /* 두께/명도 업 */
+  border-radius: 0.75em !important;
+  outline: none !important;
+  padding: 0.9em 1.1em !important; /* (fixed: removed stray '!alda') */
+}
+.mobile-login input:focus,
+.mobile-login textarea:focus,
+.mobile-login select:focus{
+  border-color: #60a5fa !important; /* indigo-400 */
+  box-shadow: 0 0 0 3px rgba(96,165,250,0.25) !important;
+}
+
+/* === placeholder 가시성 강화 (placeholder 속성 필요) === */
+.mobile-login input::placeholder,
+.mobile-login textarea::placeholder{
+  color: rgba(255,255,255,0.75) !important; /* 더 밝게 */
+}
+
+/* === 오토필(크롬/OneUI) 보정 === */
+.mobile-login input:-webkit-input-placeholder { color:#cfcfd6; }
+.mobile-login input:-webkit-autofill,
+.mobile-login input:-webkit-autofill:hover,
+.mobile-login input:-webkit-autofill:focus{
+  -webkit-text-fill-color:#fff !important;
+  box-shadow: inset 0 0 0 1000px rgba(255,255,255,0.08) !important;
+  transition: background-color 9999s ease 0s, color 9999s ease 0s !important;
+}
