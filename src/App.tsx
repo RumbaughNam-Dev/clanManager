@@ -13,13 +13,16 @@ import MobileLogin from "./screens/mobile/MobileLogin";
 import Signup from "./screens/Auth/Signup";
 import AdminClanRequests from "./screens/SuperAdmin/AdminClanRequests";
 import AdminBossCycle from "./screens/SuperAdmin/AdminBossCycle";
-import AuthEnforcer from "@/components/auth/AuthEnforcer";
-import DashboardCombined from "./screens/DashboardCombined";
 
 export default function App() {
   const [page, setPage] = useState<PageKey>("dashboard");
   const { role, user, logout } = useAuth();
-  const isMobile = useIsMobile();
+  const isMobile = (() => {
+    const qsMobile =
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("mobile") === "1";
+    return qsMobile || useIsMobile();
+  })();
 
   const serverDisplay =
     (user as any)?.serverDisplay ??
