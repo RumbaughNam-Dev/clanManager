@@ -79,10 +79,10 @@
   font-size: 1.5em !important;       /* base 대비 1.5배 */
   line-height: 1.15 !important;
 }
-.mobile-login h1 + p {                /* 제목 바로 다음 설명문 */
-  font-size: 1.5em !important;
-  line-height: 1.35 !important;
-  opacity: .95;
+.mobile-login h1 + p { 
+  font-size: 1.2em !important; /* 1.5em × 0.8 = 1.2em */
+  line-height: 1.35 !important; 
+  opacity: 0.9; 
 }
 
 /* === 버튼과 보조문구는 1.5배 더 작게(= 기본 대비 1/1.5) === */
