@@ -24,6 +24,13 @@ export default function App() {
     return qsMobile || useIsMobile();
   })();
 
+  // ✅ 모바일에서는 인트로(대시보드 초기화면) 대신 로그인 페이지로 이동
+  useEffect(() => {
+    if (isMobile && !user) {
+      setPage("login");
+    }
+  }, [isMobile, user]);
+
   const serverDisplay =
     (user as any)?.serverDisplay ??
     (typeof localStorage !== "undefined"
