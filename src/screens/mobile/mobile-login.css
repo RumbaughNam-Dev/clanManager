@@ -1,0 +1,75 @@
+/* ===== MobileLogin global scale (about 1.5x) ===== */
+.mobile-login {
+  font-size: 1.5rem; /* base text scale (16px → 24px) */
+  line-height: 1.35;
+}
+
+/* Keep headings/labels readable with the new base */
+.mobile-login h1, .mobile-login h2, .mobile-login h3 {
+  line-height: 1.2;
+}
+
+/* Inputs & selects */
+.mobile-login input,
+.mobile-login textarea,
+.mobile-login select {
+  font-size: 1em !important;     /* inherits 1.5rem → 24px */
+  padding: 0.9em 1.1em !important;
+  border-radius: 0.75em !important;
+}
+
+/* Buttons */
+.mobile-login button,
+.mobile-login .btn {
+  font-size: 1em !important;     /* inherits 1.5rem → 24px */
+  padding: 0.9em 1.2em !important;
+  border-radius: 0.9em !important;
+  font-weight: 700;
+}
+
+/* Form rows spacing */
+.mobile-login .form-row,
+.mobile-login form > * + * {
+  margin-top: 0.9em;
+}
+
+.mobile-login input,
+.mobile-login textarea,
+.mobile-login select {
+  color: #ffffff !important;               /* 타이핑한 글자 */
+  caret-color: #ffffff !important;
+  background-color: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.25) !important;
+  outline: none !important;
+}
+
+.mobile-login input::placeholder,
+.mobile-login textarea::placeholder {
+  color: rgba(255, 255, 255, 0.55) !important; /* 플레이스홀더 가독성 */
+}
+
+.mobile-login input:focus,
+.mobile-login textarea:focus,
+.mobile-login select:focus {
+  border-color: rgba(99, 102, 241, 0.9) !important;       /* 포커스 포인트 */
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25) !important;
+}
+
+/* Chrome/One UI 오토필(노란 배경)에서도 흰 글자/어두운 배경 유지 */
+.mobile-login input:-webkit-autofill,
+.mobile-login input:-webkit-autofill:hover,
+.mobile-login input:-webkit-autofill:focus,
+.mobile-login textarea:-webkit-autofill,
+.mobile-login textarea:-webkit-autofill:hover,
+.mobile-login textarea:-webkit-autofill:focus {
+  -webkit-text-fill-color: #ffffff !important;
+  transition: background-color 600000s 0s, color 600000s 0s !important;
+  box-shadow: inset 0 0 0px 1000px rgba(255, 255, 255, 0.06) !important;
+}
+
+/* 라벨류도 흰색으로 보장 */
+.mobile-login label,
+.mobile-login .label,
+.mobile-login .form-label {
+  color: #ffffff !important;
+}
