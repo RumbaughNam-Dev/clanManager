@@ -8,6 +8,8 @@ import TimelineList from "./screens/TimelineList";
 import TimelineDetail from "./screens/TimelineDetail";
 import Treasury from "./screens/Treasury";
 import Login from "./screens/Auth/Login";
+import { useIsMobile } from "./hooks/useIsMobile";
+import MobileLogin from "./screens/mobile/MobileLogin";
 import Signup from "./screens/Auth/Signup";
 import AdminClanRequests from "./screens/SuperAdmin/AdminClanRequests";
 import AdminBossCycle from "./screens/SuperAdmin/AdminBossCycle";
@@ -17,6 +19,7 @@ import DashboardCombined from "./screens/DashboardCombined";
 export default function App() {
   const [page, setPage] = useState<PageKey>("dashboard");
   const { role, user, logout } = useAuth();
+  const isMobile = useIsMobile();
 
   const serverDisplay =
     (user as any)?.serverDisplay ??
@@ -175,7 +178,12 @@ export default function App() {
         {page === "timelineList" && <TimelineList />}
         {page === "timelineDetail" && <TimelineDetail role={effectiveRole} />}
         {page === "treasury" && <Treasury role={effectiveRole} />}
-        {page === "login" && <Login onGoSignup={() => setPage("signup")} />}
+        {page === "login" &&
+        (isMobile ? (
+          <MobileLogin onGoSignup={() => setPage("signup")} />
+        ) : (
+          <Login onGoSignup={() => setPage("signup")} />
+        ))}
         {page === "signup" && <Signup />}
         {page === "adminClanRequests" && <AdminClanRequests />}
         {page === "adminBossCycle" && <AdminBossCycle />}

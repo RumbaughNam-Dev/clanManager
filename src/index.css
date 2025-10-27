@@ -6,6 +6,10 @@
 html, body, #root { height: 100%; }
 body { @apply bg-slate-50 text-slate-900; }
 
+  @media (max-width: 768px) {
+    html { font-size: 17px; } /* 기본 16px → 17~18px로 키우면 가독성 ↑ */
+  }
+
  /* 기본은 스크롤 허용(대부분 페이지) */
  html, body {
    overflow: auto;
