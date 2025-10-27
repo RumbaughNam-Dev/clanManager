@@ -1,6 +1,6 @@
 /* ===== MobileLogin global scale (about 1.5x) ===== */
 .mobile-login {
-  font-size: 1.5rem; /* base text scale (16px → 24px) */
+  font-size: 2.25rem; /* 1.5x of previous 1.5rem (24px → ~36px) */
   line-height: 1.35;
 }
 
