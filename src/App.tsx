@@ -111,70 +111,72 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
-      <header className="sticky top-0 z-40 bg-white/80 backdrop-blur border-b">
-        <div className="mx-auto w-full max-w-[1920px] px-6 h-14 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            {/* 🔗 로고 클릭 시 대시보드로 이동 */}
-            <button
-              onClick={() => guardAndNav("dashboard")}
-              className="text-xl font-extrabold focus:outline-none"
-            >
-              Clan Manager
-            </button>
-            <nav className="hidden md:flex gap-1">
-              {navItems.map((p) => (
-                <button
-                  key={p.key}
-                  onClick={() => guardAndNav(p.key)}
-                  className={`px-3 py-1.5 rounded-xl text-sm ${
-                    page === p.key
-                      ? "bg-slate-900 text-white"
-                      : "hover:bg-slate-100"
-                  }`}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </nav>
+      {!isMobile && (
+        <header className="sticky top-0 z-40 bg-white/80 backdrop-blur border-b">
+          <div className="mx-auto w-full max-w-[1920px] px-6 h-14 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              {/* 🔗 로고 클릭 시 대시보드로 이동 */}
+              <button
+                onClick={() => guardAndNav("dashboard")}
+                className="text-xl font-extrabold focus:outline-none"
+              >
+                Clan Manager
+              </button>
+              <nav className="hidden md:flex gap-1">
+                {navItems.map((p) => (
+                  <button
+                    key={p.key}
+                    onClick={() => guardAndNav(p.key)}
+                    className={`px-3 py-1.5 rounded-xl text-sm ${
+                      page === p.key
+                        ? "bg-slate-900 text-white"
+                        : "hover:bg-slate-100"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </nav>
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+              {user ? (
+                <>
+                  <span className="px-2 py-1 rounded bg-slate-100">
+                    {user.loginId}
+                    {serverDisplay ? ` - ${serverDisplay}` : ""}
+                    {user.clanName ? ` · ${user.clanName}` : ""}
+                    {` (${roleLabel(role)})`}
+                  </span>
+                  <button
+                    onClick={() => {
+                      logout();
+                      setPage("dashboard");
+                    }}
+                    className="px-3 py-1.5 rounded-xl hover:bg-slate-100"
+                  >
+                    로그아웃
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={() => setPage("login")}
+                    className="px-3 py-1.5 rounded-xl hover:bg-slate-100"
+                  >
+                    로그인
+                  </button>
+                  <button
+                    onClick={() => setPage("signup")}
+                    className="px-3 py-1.5 rounded-xl hover:bg-slate-100"
+                  >
+                    가입
+                  </button>
+                </>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-2 text-sm">
-            {user ? (
-              <>
-                <span className="px-2 py-1 rounded bg-slate-100">
-                  {user.loginId}
-                  {serverDisplay ? ` - ${serverDisplay}` : ""}
-                  {user.clanName ? ` · ${user.clanName}` : ""}
-                  {` (${roleLabel(role)})`}
-                </span>
-                <button
-                  onClick={() => {
-                    logout();
-                    setPage("dashboard");
-                  }}
-                  className="px-3 py-1.5 rounded-xl hover:bg-slate-100"
-                >
-                  로그아웃
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  onClick={() => setPage("login")}
-                  className="px-3 py-1.5 rounded-xl hover:bg-slate-100"
-                >
-                  로그인
-                </button>
-                <button
-                  onClick={() => setPage("signup")}
-                  className="px-3 py-1.5 rounded-xl hover:bg-slate-100"
-                >
-                  가입
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      </header>
+        </header>
+      )}
 
       <main
         className={`mx-auto w-full max-w-[1920px] px-6 ${

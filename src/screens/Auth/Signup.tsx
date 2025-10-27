@@ -176,7 +176,7 @@ export default function Signup({ onSuccess }: Props) {
           </section>
 
           {/* 4) 입금 안내 */}
-          <section className="space-y-2">
+          {/* <section className="space-y-2">
             <div className="font-semibold">입금 안내</div>
             <div className="rounded-xl border p-3 text-sm bg-gray-50">
               <div><span className="font-medium">은행</span> · 국민은행</div>
@@ -184,7 +184,7 @@ export default function Signup({ onSuccess }: Props) {
               <div><span className="font-medium">예금주</span> · 남상현</div>
               <div><span className="font-medium">이용료</span> · 월 30,000원</div>
             </div>
-          </section>
+          </section> */}
 
           {/* 5) 제출 */}
           <div className="pt-2 flex items-center justify-between gap-3">
