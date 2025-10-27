@@ -104,15 +104,15 @@ export default function Login({ onGoSignup }: Props) {
               disabled={!loginId || !password || submitting}
               className={`px-4 py-2 rounded-xl font-bold transition-colors duration-150
                 ${loginId && password && !submitting
-                  ? 'bg-blue-600 text-white hover:bg-blue-700'
-                  : 'bg-blue-400/40 text-white/70 cursor-not-allowed'}`}
+                  ? 'bg-blue-700 text-white hover:bg-blue-800'
+                  : 'bg-blue-700/40 text-white/70 cursor-not-allowed'}`}
             >
               {submitting ? "로그인 중..." : "로그인"}
             </button>
             <button
               type="button"
               onClick={() => onGoSignup?.()}
-              className="px-4 py-2 rounded-xl font-bold bg-slate-700 text-white hover:bg-slate-800 transition-colors duration-150"
+              className="px-4 py-2 rounded-xl job font-bold bg-slate-700 text-white hover:bg-slate-800 transition-colors duration-150"
             >
               혈맹 등록요청
             </button>

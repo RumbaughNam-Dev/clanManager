@@ -134,3 +134,54 @@
   box-shadow: inset 0 0 0 1000px rgba(255,255,255,0.08) !important;
   transition: background-color 9999s ease 0s, color 9999s ease 0s !important;
 }
+
+/* 인풋 텍스트/보더/배경을 어두운 실색으로 고정 (카드가 흰 배경이어도 대비 유지) */
+.mobile-login input,
+.mobile-login textarea,
+.mobile-login select{
+  color: #fff !important;
+  caret-color: #fff !important;
+  background-color: #111827 !important;       /* 진한 배경으로 고정 */
+  background-clip: padding-box !important;
+  border: 2px solid rgba(255,255,255,0.35) !important;
+  border-radius: 0.75em !important;
+  outline: none !important;
+  padding: 0.9em 1.1em !important;
+}
+
+/* 포커스 시 더 명확한 하이라이트 */
+.mobile-login input:focus,
+.mobile-login textarea:focus,
+.mobile-login select:focus{
+  border-color: #60a5fa !important;            /* blue-400 */
+  box-shadow: 0 0 0 3px rgba(96,165,250,0.25) !important;
+}
+
+/* placeholder 가독성 (WebKit/Blink 포함 모든 엔진 보정) */
+.mobile-login input::placeholder,
+.mobile-login textarea::placeholder { color: rgba(255,255,255,0.75) !important; }
+.mobile-login input::-webkit-input-placeholder,
+.mobile-login textarea::-webkit-input-placeholder { color: rgba(255,255,255,0.75) !important; }
+.mobile-login input:-ms-input-placeholder,
+.mobile-login textarea:-ms-input-placeholder { color: rgba(255,255,255,0.75) !important; }
+.mobile-login input::-ms-input-placeholder,
+.mobile-login textarea::-ms-input-placeholder { color: rgba(255,255,255,0.75) !important; }
+.mobile-login input::-moz-placeholder,
+.mobile-login textarea::-moz-placeholder { color: rgba(255,255,255,0.75) !important; opacity: 1; }
+
+/* 오토필(크롬/One UI) 보정: 노란 배경/글자색 이슈 방지 */
+.mobile-login input:-webkit-autofill,
+.mobile-login input:-webkit-autofill:hover,
+.mobile-login input:-webkit-autofill:focus{
+  -webkit-text-fill-color:#fff !important;
+  box-shadow: inset 0 0 0 1000px #111827 !important; /* 동일한 진한 배경 유지 */
+  transition: background-color 9999s ease 0s, color 9999s ease 0s !important;
+}
+
+/* 모바일 로그인 폼의 모든 버튼을 동일한 크기/글자 크기로 */
+.mobile-login form button{
+  font-size: calc(1em / 1.5) !important;      /* 베이스 2.25rem 대비 약 1.5배 작게 */
+  padding: 0.9em 1.2em !important;
+  border-radius: 0.9em !important;
+  font-weight: 700 !important;
+}
