@@ -1,4 +1,3 @@
-// File: src/screens/Auth/Signup.tsx
 import React, { useMemo, useState } from "react";
 import PageHeader from "../../components/common/PageHeader";
 import Card from "../../components/common/Card";
@@ -33,8 +32,8 @@ export default function Signup({ onSuccess }: Props) {
   const [submitting, setSubmitting] = useState(false);
 
   const isReady = useMemo(
-    () => !!world && !!serverNo && !!clanName && !!loginId && !!password && !!depositor,
-    [world, serverNo, clanName, loginId, password, depositor]
+    () => !!world && !!serverNo && !!clanName && !!loginId,
+    [world, serverNo, clanName, loginId]
   );
 
   const fullServerLabel = world && serverNo ? `${world}${serverNo}서버` : "-";
@@ -51,11 +50,8 @@ export default function Signup({ onSuccess }: Props) {
 
       alert(
         [
-          "혈맹 등록 요청이 접수되었습니다.",
-          "요청 후 24시간 이내에 등록 처리됩니다.",
-          "빠르게 등록하길 원하시면 010-3934-5039로 문자나 카톡 주세요.",
-          "",
-          "※ 처리 완료 전까지는 로그인할 수 없습니다.",
+          "혈맹 등록이 완료되었습니다.",
+          "지금 바로 클랜 매니저를 사용할 수 있습니다.",
         ].join("\n")
       );
 
@@ -84,7 +80,7 @@ export default function Signup({ onSuccess }: Props) {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="혈맹 등록 요청" subtitle="서버 선택 → 혈맹/계정 정보 입력 → 요청 제출" />
+      <PageHeader title="혈맹 등록 요청" subtitle="서버 선택 → 혈맹/계정 정보 입력 → 요청 제출 (즉시 사용 가능)" />
 
       <Card>
         <form className="space-y-6" onSubmit={handleSubmit}>
@@ -159,19 +155,6 @@ export default function Signup({ onSuccess }: Props) {
                 <input className="w-full border rounded-lg px-3 py-2" placeholder="관리자 ID"
                   value={loginId} onChange={(e) => setLoginId(e.target.value)} autoComplete="username" />
               </div>
-              <div>
-                <label className="block text-sm mb-1">비밀번호</label>
-                <input type="password" className="w-full border rounded-lg px-3 py-2" placeholder="••••••••"
-                  value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
-                <p className="mt-2 text-xs text-amber-700">
-                  비밀번호는 암호화 되어 저장되지만, <span className="font-semibold">리니지M 계정/비밀번호와 동일하게 입력하지 마시길</span> 권장합니다.
-                </p>
-              </div>
-              <div className="md:col-span-2">
-                <label className="block text-sm mb-1">입금자 명</label>
-                <input className="w-full border rounded-lg px-3 py-2" placeholder="예: 남상현"
-                  value={depositor} onChange={(e) => setDepositor(e.target.value)} />
-              </div>
             </div>
           </section>
 
@@ -188,10 +171,15 @@ export default function Signup({ onSuccess }: Props) {
 
           {/* 5) 제출 */}
           <div className="pt-2 flex items-center justify-between gap-3">
-            <div className="text-sm text-gray-600">
-              요청 후 <span className="font-medium">24시간 이내</span>에 등록 처리됩니다.
-              빠르게 등록하길 원하시면 <span className="font-medium">010-3934-5039</span>로 문자나 카톡 주세요.
-              <br />처리 완료 전까지는 로그인할 수 없습니다.
+            <div className="text-sm text-gray-600 space-y-1">
+              <p>
+                <span className="mr-1">•</span>
+                초기 비밀번호는 <span className="font-semibold">1234</span>로 자동 설정됩니다. 로그인 후 반드시 비밀번호를 변경해 주세요.
+              </p>
+              <p>
+                <span className="mr-1">•</span>
+                제출 즉시 사용이 활성화됩니다. 문제가 있을 경우 <span className="font-medium">010-3934-5039</span>로 문의해 주세요.
+              </p>
             </div>
             <button
               type="submit"

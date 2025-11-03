@@ -55,7 +55,7 @@ export default function Members() {
   const addMember = async (e: React.FormEvent) => {
     e.preventDefault();
     if (creating) return;
-    if (!loginId || !password) return;
+    if (!loginId) return;
     if (list.length >= MAX_MEMBERS) {
       alert(`혈맹원은 최대 ${MAX_MEMBERS}명까지 등록할 수 있습니다.`);
       return;
@@ -63,7 +63,7 @@ export default function Members() {
     setCreating(true);
     try {
       // ✅ 생성은 /v1/members
-      await postJSON("/v1/members", { loginId, password, role: "USER" });
+      await postJSON("/v1/members", { loginId, password: "1234", role: "USER" });
       setLoginId("");
       setPassword("");
       await load();
@@ -140,7 +140,7 @@ export default function Members() {
       <PageHeader title="혈맹원 관리" subtitle="추가 / 권한변경 / 삭제" />
 
       <Card>
-        <form onSubmit={addMember} className="grid md:grid-cols-3 gap-3 items-end">
+        <form onSubmit={addMember} className="grid md:grid-cols-2 gap-3 items-end">
           <div>
             <label className="block text-sm mb-1">아이디</label>
             <input
@@ -150,20 +150,11 @@ export default function Members() {
             />
           </div>
           <div>
-            <label className="block text-sm mb-1">비밀번호</label>
-            <input
-              type="password"
-              className="w-full border rounded-lg px-3 py-2"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
-          <div>
             <button
               type="submit"
-              disabled={creating || !loginId || !password || list.length >= MAX_MEMBERS}
+              disabled={creating || !loginId || list.length >= MAX_MEMBERS}
               className={`w-full px-4 py-2 rounded-xl ${
-                (!creating && loginId && password && list.length < MAX_MEMBERS)
+                (!creating && loginId && list.length < MAX_MEMBERS)
                   ? "bg-slate-900 text-white"
                   : "bg-gray-200 text-gray-500 cursor-not-allowed"
               }`}
@@ -172,6 +163,10 @@ export default function Members() {
             </button>
           </div>
         </form>
+        <p className="mt-2 text-sm text-gray-600">
+          • 신규 혈맹원은 초기 비밀번호가 <span className="font-semibold">1234</span>로 설정됩니다. <br />
+          • 최초 로그인 시 반드시 비밀번호를 변경해야 사용할 수 있습니다.
+        </p>
         <p className="mt-1 text-xs text-gray-500">
           혈맹원은 최대 {MAX_MEMBERS}명까지 입력할 수 있습니다. (현재 {list.length}명)
         </p>

@@ -279,6 +279,8 @@ export default function LoggedInDashboard({
   /** 검색/알림/간편컷 등 기존 상태 유지 */
   const [query, setQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  // 지남 유지 상태: 보스별 지남 시각(dueAt)과 유지 마감 시각(holdUntil)을 저장
+  const overdueStateRef = useRef<Map<string, { dueAt: number; holdUntil: number }>>(new Map());
 
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(() => {
     try {
@@ -609,8 +611,29 @@ export default function LoggedInDashboard({
     const now = Date.now();
     const nextMs = getNextMsGeneric(b);
     if (!Number.isFinite(nextMs)) return Number.POSITIVE_INFINITY;
-    const diff = nextMs - now;
-    if (diff <= 0 && diff >= -OVERDUE_GRACE_MS) return diff;
+
+    const diff = nextMs - now; // >0 남음, <0 지남
+    const stateMap = overdueStateRef.current;
+    const st = stateMap.get(b.id);
+
+    // 1) 지금 막 지남하거나 지남 상태라면: 지남 시각(dueAt) 고정하고 10분 유지
+    if (diff <= 0) {
+      const dueAt = st?.dueAt ?? nextMs; // 지남 시각 고정
+      const holdUntil = now + OVERDUE_GRACE_MS; // 앞으로 10분 유지
+      stateMap.set(b.id, { dueAt, holdUntil });
+      // 경과시간을 음수로 리턴 (절댓값이 계속 커짐)
+      return -(now - dueAt);
+    }
+
+    // 2) 서버 갱신으로 nextMs가 미래로 밀려도, 유지 중이면 경과시간을 계속 키워서 보여줌
+    if (st && now < st.holdUntil) {
+      return -(now - st.dueAt); // 지남 경과시간(카운트업)
+    }
+
+    // 3) 유지 시간 종료 후 클린업
+    if (st && now >= st.holdUntil) stateMap.delete(b.id);
+
+    // 정상 카운트다운
     return diff;
   };
 
@@ -838,7 +861,7 @@ export default function LoggedInDashboard({
     const dazeCount = Number((b as any)?.dazeCount ?? 0);
     const missCount = computeEffectiveMiss(b);
 
-    const afterLabel = remain < 0 ? (Math.abs(remain) <= OVERDUE_GRACE_MS ? "지남(유예)" : "지남") : "뒤 예상";
+    const afterLabel = remain < 0 ? (Math.abs(remain) <= OVERDUE_GRACE_MS ? "지남" : "지남") : "뒤 예상";
 
     return (
       <div key={b.id} className={`relative overflow-visible z-[40] hover:z-[90] rounded-xl shadow-sm p-3 text-sm ${blinkCls}`}>
