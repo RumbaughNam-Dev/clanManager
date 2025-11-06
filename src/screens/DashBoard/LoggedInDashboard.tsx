@@ -19,6 +19,10 @@ const ALERT_THRESHOLDS = [5 * MIN, 1 * MIN] as const;
 const HIGHLIGHT_MS = 5 * MIN;
 // 비고정: 지남 유예(파랑 유지) 5분
 const OVERDUE_GRACE_MS = 10 * MIN;
+
+// ⬇️ 추가: 컷/멍 직후 깜빡임 & 상단고정 억제 시간(요구: 10분)
+const ACTION_SILENCE_MS = OVERDUE_GRACE_MS;
+
 // 비고정: 지남 3분째 경고 음성(한 번만)
 const MISSED_WARN_MS = 3 * MIN;
 
@@ -207,6 +211,27 @@ function getDateRangeLastNDays(n = 7) {
   return { fromDate: formatDateLocal(from), toDate: formatDateLocal(today) };
 }
 
+// 두 날짜(YYYY-MM-DD)의 '일수 차이(포함형)' — from~to가 31일 이하면 OK
+function daysBetweenInclusive(a: string, b: string): number {
+  if (!a || !b) return Infinity;
+  const aDt = new Date(a + "T00:00:00");
+  const bDt = new Date(b + "T00:00:00");
+  // a <= b 가정. 뒤집혀 있으면 교환
+  const s = Math.min(aDt.getTime(), bDt.getTime());
+  const e = Math.max(aDt.getTime(), bDt.getTime());
+  // 포함형이므로 +1
+  return Math.floor((e - s) / (24 * 60 * 60 * 1000)) + 1;
+}
+
+// YYYY-MM-DD에 n일 더한 문자열 반환 (로컬 기준)
+function addDaysStr(base: string, n: number): string {
+  if (!base) return "";
+  const [y, m, d] = base.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + n);
+  return formatDateLocal(dt);
+}
+
 // KST(Asia/Seoul) 기준 하루의 시작/끝 (Date → ms)
 function kstDayRangeMs(yyyyMmDd: string): { start: number; end: number } {
   // yyyy-MM-dd → KST 자정~자정-1ms
@@ -282,6 +307,9 @@ export default function LoggedInDashboard({
   // 지남 유지 상태: 보스별 지남 시각(dueAt)과 유지 마감 시각(holdUntil)을 저장
   const overdueStateRef = useRef<Map<string, { dueAt: number; holdUntil: number }>>(new Map());
 
+  // ⬇️ 추가: 액션 후 억제 상태(끝나는 ms) 저장
+  const actionSilenceRef = useRef<Map<string, number>>(new Map());
+
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(() => {
     try {
       const v = localStorage.getItem("voiceEnabled");
@@ -313,6 +341,10 @@ export default function LoggedInDashboard({
 
   const fixedAlertedMapRef = useRef<Map<string, Set<number>>>(new Map());
   const fixedCycleStartRef = useRef<number>(0);
+
+  function isSilenced(id: string, now = Date.now()) {
+    return (actionSilenceRef.current.get(id) ?? 0) > now;
+  }
 
   // ──────────────── 시간 유틸 (고정보스) ────────────────
   function cycleStartMs(nowMs = Date.now()) {
@@ -448,11 +480,17 @@ export default function LoggedInDashboard({
         .slice(0, 120); // 여유 버퍼
 
       setRecentList(items);
-    } catch {
-      setRecentList([]);
-    } finally {
-      setRecentLoading(false);
-    }
+      } catch (e: any) {
+        // ⛑️ 31일 초과 백엔드 에러 메시지 방어
+        const msg = e?.message || e?.toString?.() || "";
+        if (msg.includes("31일") || msg.includes("최대 31일")) {
+          alert("검색 기간은 최대 31일까지만 가능합니다.");
+          // 상태는 onChange에서 이미 막히므로 별도 되돌림 불필요
+        }
+        setRecentList([]);
+      } finally {
+        setRecentLoading(false);
+      }
   }
 
   function openTimelineManage(timelineId: string | null, bossName: string) {
@@ -850,9 +888,11 @@ export default function LoggedInDashboard({
   function renderTileAll(b: BossDto) {
     const remain = remainingMsFor(b);
     const hms = fmtHMS(remain);
+    const now = Date.now();
+    const silenced = isSilenced(b.id, now);            // ⬅️ 추가
     const isSoon = remain > 0 && remain <= HIGHLIGHT_MS;                 // 5분 이내
     const overdueKeep = remain < 0 && remain >= -OVERDUE_GRACE_MS;       // 지남~10분 유예
-    const shouldBlink = isSoon || overdueKeep;                           // 빨간 깜빡임 유지
+    const shouldBlink = !silenced && (isSoon || overdueKeep);
     const blinkCls = shouldBlink
       ? "animate-blink border-2 border-rose-500 bg-rose-50"
       : "border border-slate-200 bg-white";
@@ -1062,15 +1102,42 @@ export default function LoggedInDashboard({
 
     return { boss, iso };
   }
+
   async function submitQuickCut() {
     if (quickSaving) return;
+
     const parsed = parseQuickCut(quickCutText, filteredAll);
-    if (!parsed) { alert("형식: 시각 보스이름\n예) 2200 서드 / 22:00 서드 / 930 악마왕"); return; }
-    if (!parsed.boss) { alert("입력한 보스명을 찾을 수 없습니다. (현재 목록에서 검색됩니다)"); return; }
+    if (!parsed) {
+      alert("형식: 시각 보스이름\n예) 2200 서드 / 22:00 서드 / 930 악마왕");
+      return;
+    }
+    if (!parsed.boss) {
+      alert("입력한 보스명을 찾을 수 없습니다. (현재 목록에서 검색됩니다)");
+      return;
+    }
 
     setQuickSaving(true);
     try {
-      await postJSON(`/v1/dashboard/bosses/${parsed.boss.id}/cut`, { cutAtIso: parsed.iso, mode: "TREASURY", items: [], participants: [] });
+      // 저장
+      await postJSON(`/v1/dashboard/bosses/${parsed.boss.id}/cut`, {
+        cutAtIso: parsed.iso,
+        mode: "TREASURY",
+        items: [],
+        participants: [],
+      });
+
+      // ⬇️ 간편컷 성공 직후: 지남 유지/알림 상태 정리 + 10분 억제 ON
+      const id = parsed.boss.id;
+      overdueStateRef.current.delete(id); // 0분 0초 카운트업(지남 유지) 즉시 해제
+      missedWarnSetRef.current.delete(id); // "미입력 이동" 경고 상태 제거
+      setAlertedMap((prev) => {            // 5/1분 음성 알림 임계값 기록 초기화
+        const next = new Map(prev);
+        next.delete(id);
+        return next;
+      });
+      actionSilenceRef.current.set(id, Date.now() + ACTION_SILENCE_MS); // 10분간 깜빡임/상단고정 억제
+
+      // UI 갱신
       setQuickCutText("");
       await loadBosses();
       await loadRecentHistory();
@@ -1087,6 +1154,13 @@ export default function LoggedInDashboard({
   async function instantCut(b: BossDto) {
     try {
       await postJSON(`/v1/dashboard/bosses/${b.id}/cut`, { cutAtIso: new Date().toString(), mode: "TREASURY", items: [], participants: [] });
+
+      // ⬇️ 추가: 지남 유지/경고 상태 해제 + 10분 억제 ON
+      overdueStateRef.current.delete(b.id);
+      missedWarnSetRef.current.delete(b.id);
+      setAlertedMap(prev => { const next = new Map(prev); next.delete(b.id); return next; });
+      actionSilenceRef.current.set(b.id, Date.now() + ACTION_SILENCE_MS);
+
       await loadBosses();
       await loadRecentHistory();
       clearSearch();
@@ -1097,14 +1171,34 @@ export default function LoggedInDashboard({
   // 멍
   async function addDaze(b: BossDto) {
     try {
+      // 최근 컷 타임라인 조회
       const tl = await getTimelineIdForBossName(b.name);
-      if (!tl?.id) { alert("해당 보스의 최근 컷 타임라인을 찾을 수 없습니다."); return; }
+      if (!tl?.id) {
+        alert("해당 보스의 최근 컷 타임라인을 찾을 수 없습니다.");
+        return;
+      }
+
+      // 멍 기록
       await postJSON(`/v1/boss-timelines/${tl.id}/daze`, { atIso: new Date().toString() });
+
+      // ⬇️ 컷/멍 직후 처리: 지남 유지/알림 상태 정리 + 10분 억제 ON
+      overdueStateRef.current.delete(b.id);                 // 0분 0초 카운트업(지남 유지) 즉시 해제
+      missedWarnSetRef.current.delete(b.id);                // "미입력 이동" 음성 경고 재발 방지 잔여 상태 제거
+      setAlertedMap((prev) => {                             // 5/1분 알림 임계값 기록 초기화
+        const next = new Map(prev);
+        next.delete(b.id);
+        return next;
+      });
+      actionSilenceRef.current.set(b.id, Date.now() + ACTION_SILENCE_MS); // 10분간 깜빡임/상단고정 억제
+
+      // 최신 데이터 반영
       await loadBosses();
       await loadRecentHistory();
       clearSearch();
       onForceRefresh?.();
-    } catch { alert("멍 기록에 실패했습니다. 잠시 후 다시 시도해 주세요."); }
+    } catch (e: any) {
+      alert(e?.message ?? "멍 기록에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+    }
   }
 
   /** 공유/가져오기 */
@@ -1311,22 +1405,43 @@ export default function LoggedInDashboard({
 
               {/* From 버튼 + 투명 date input(앵커) */}
               <div className="relative">
-                {/* 레이아웃에는 존재하되 보이지 않게: 버튼 아래에 포지셔닝 */}
                 <input
                   ref={recentFromRef}
                   type="date"
                   value={recentFromDate}
-                  onChange={(e) => setRecentFromDate(e.currentTarget.value)}
+                  // ✅ 'from'은 선택 가능한 최소/최대 범위를 'to' 기준 31일로 제한
+                  min={addDaysStr(recentToDate, -30)}
                   max={recentToDate}
+                  onChange={(e) => {
+                    const nextFrom = e.currentTarget.value;
+                    if (!nextFrom) return;
+                    if (daysBetweenInclusive(nextFrom, recentToDate) > 31) {
+                      alert("검색 기간은 최대 31일까지만 가능합니다.");
+                      // 상태는 그대로 두고(유효하지 않으니) input 값도 되돌림
+                      e.currentTarget.value = recentFromDate;
+                      return;
+                    }
+                    setRecentFromDate(nextFrom);
+                  }}
                   className="absolute top-full left-0 w-px h-px opacity-0"
-                  // opacity-0 이지만 레이아웃 상 존재하므로 picker 앵커가 버튼 아래로 뜸
                 />
                 <input
                   ref={recentToRef}
                   type="date"
                   value={recentToDate}
-                  onChange={(e) => setRecentToDate(e.currentTarget.value)}
+                  // ✅ 'to'는 'from' 기준 31일을 넘지 못하도록 제한
                   min={recentFromDate}
+                  max={addDaysStr(recentFromDate, 30)}
+                  onChange={(e) => {
+                    const nextTo = e.currentTarget.value;
+                    if (!nextTo) return;
+                    if (daysBetweenInclusive(recentFromDate, nextTo) > 31) {
+                      alert("검색 기간은 최대 31일까지만 가능합니다.");
+                      e.currentTarget.value = recentToDate;
+                      return;
+                    }
+                    setRecentToDate(nextTo);
+                  }}
                   className="absolute top-full left-0 w-px h-px opacity-0"
                 />
               </div>

@@ -9,7 +9,8 @@ export type PageKey =
   | "login"
   | "signup"
   | "adminClanRequests"
-  | "adminBossCycle";
+  | "adminBossCycle"
+  | "feedback";
 
 export const PAGES: { key: PageKey; label: string }[] = [
   { key: "dashboard", label: "대시보드" },

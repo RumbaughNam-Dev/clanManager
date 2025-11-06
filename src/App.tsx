@@ -14,6 +14,7 @@ import Signup from "./screens/Auth/Signup";
 import AdminClanRequests from "./screens/SuperAdmin/AdminClanRequests";
 import AdminBossCycle from "./screens/SuperAdmin/AdminBossCycle";
 import MobileDashboard from "./screens/mobile/MobileDashboard";
+import FeedbackBoard from "./screens/Feedback/FeedbackBoard";
 
 export default function App() {
   const [page, setPage] = useState<PageKey>("dashboard");
@@ -59,7 +60,7 @@ export default function App() {
   }, [page]);
 
   useEffect(() => {
-    const publicPages: PageKey[] = ["dashboard", "login", "signup"];
+    const publicPages: PageKey[] = ["dashboard", "login", "signup", "feedback"];
     if (!user && !publicPages.includes(page)) {
       setPage("dashboard");
     }
@@ -86,12 +87,14 @@ export default function App() {
         { key: "dashboard" as PageKey, label: "대시보드" },
         { key: "adminClanRequests" as PageKey, label: "혈맹 등록요청 처리" },
         { key: "adminBossCycle" as PageKey, label: "보스 젠 주기 관리" },
+        { key: "feedback" as PageKey, label: "불편사항 건의하기" },
       ];
     }
     const base = [
       { key: "dashboard" as PageKey, label: "대시보드" },
       { key: "timelineList" as PageKey, label: "잡은보스 관리" },
       { key: "treasury" as PageKey, label: "혈비 관리" }, // ← 라벨 정정
+      { key: "feedback" as PageKey, label: "불편사항 건의하기" },
     ];
     if (role === "ADMIN" || role === "LEADER") {
       base.splice(1, 0, { key: "members" as PageKey, label: "혈맹원 관리" });
@@ -102,7 +105,7 @@ export default function App() {
   const effectiveRole = (role ?? "USER") as Role;
 
   const guardAndNav = (next: PageKey) => {
-    const publicPages: PageKey[] = ["dashboard", "login", "signup"];
+    const publicPages: PageKey[] = ["dashboard", "login", "signup", "feedback"];
     if (!user && !publicPages.includes(next)) {
       setPage("dashboard"); // ← 로그인 페이지 말고 대시보드로
       return;
@@ -191,6 +194,7 @@ export default function App() {
         {page === "timelineList" && <TimelineList />}
         {page === "timelineDetail" && <TimelineDetail role={effectiveRole} />}
         {page === "treasury" && <Treasury role={effectiveRole} />}
+        {page === "feedback" && <FeedbackBoard />}
         {page === "login" &&
         (isMobile ? (
           <MobileLogin onGoSignup={() => setPage("signup")} />

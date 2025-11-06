@@ -188,6 +188,24 @@ export default function TimelineList({ refreshTick }: { refreshTick?: number }) 
     return `${year}-${month}-${day}`;
   }
 
+  // 두 날짜(YYYY-MM-DD)의 '포함형' 일수 차
+  function daysBetweenInclusive(a: string, b: string): number {
+    if (!a || !b) return Infinity;
+    const aDt = new Date(a + "T00:00:00");
+    const bDt = new Date(b + "T00:00:00");
+    const s = Math.min(aDt.getTime(), bDt.getTime());
+    const e = Math.max(aDt.getTime(), bDt.getTime());
+    return Math.floor((e - s) / (24 * 60 * 60 * 1000)) + 1;
+  }
+
+  // YYYY-MM-DD 문자열에 n일 더하기
+  function addDaysStr(base: string, n: number): string {
+    const [y, m, d] = base.split("-").map(Number);
+    const dt = new Date(y, m - 1, d);
+    dt.setDate(dt.getDate() + n);
+    return formatDateLocal(dt);
+  }
+
   // 추가: 날짜 상태
   const today = new Date();
   const defaultTo = formatDateLocal(today); // ✅ 로컬 오늘 날짜
@@ -195,6 +213,10 @@ export default function TimelineList({ refreshTick }: { refreshTick?: number }) 
 
   const [fromDate, setFromDate] = useState(defaultFrom);
   const [toDate, setToDate] = useState(defaultTo);
+
+  // ⬇️ 백엔드 에러(31일 초과) 시 되돌릴 '마지막 유효 값'
+  const prevFromRef = useRef(fromDate);
+  const prevToRef = useRef(toDate);
 
   useEffect(() => {
     reload();
@@ -208,16 +230,24 @@ export default function TimelineList({ refreshTick }: { refreshTick?: number }) 
       const sorted = (data.items ?? []).sort((a, b) => {
         const aDone = isTimelineComplete(a);
         const bDone = isTimelineComplete(b);
-
-        // 미완료가 먼저
-        if (aDone !== bDone) return aDone ? 1 : -1;
-
-        // 같은 그룹이면 최신순
-        return new Date(b.cutAt).getTime() - new Date(a.cutAt).getTime();
+        if (aDone !== bDone) return aDone ? 1 : -1; // 미완료 우선
+        return new Date(b.cutAt).getTime() - new Date(a.cutAt).getTime(); // 최신순
       });
 
       setRows(sorted);
-    } catch {
+
+      // ✅ 호출 성공 시 현재 선택 범위를 '유효값'으로 기록
+      prevFromRef.current = fromDate;
+      prevToRef.current = toDate;
+    } catch (e: any) {
+      const msg = e?.message || e?.toString?.() || "";
+      // ⛑️ 백엔드가 31일 제한으로 400을 던질 때
+      if (msg.includes("31일") || msg.includes("최대 31일")) {
+        alert("검색 기간은 최대 31일까지만 가능합니다.");
+        // ✅ 마지막 유효 범위로 되돌리기
+        if (fromDate !== prevFromRef.current) setFromDate(prevFromRef.current);
+        if (toDate !== prevToRef.current) setToDate(prevToRef.current);
+      }
       setRows([]);
     } finally {
       setLoading(false);
@@ -361,14 +391,39 @@ return (
             type="date"
             className="border rounded-lg px-2 py-2 text-sm"
             value={fromDate}
-            onChange={(e) => setFromDate(e.target.value)}
+            // ✅ toDate 기준 최대 31일 범위로 제한
+            min={addDaysStr(toDate, -30)}
+            max={toDate}
+            onChange={(e) => {
+              const nextFrom = e.currentTarget.value;
+              if (!nextFrom) return;
+              if (daysBetweenInclusive(nextFrom, toDate) > 31) {
+                alert("검색 기간은 최대 31일까지만 가능합니다.");
+                // 상태 변경하지 않음 → 그대로 유지(되돌리기 효과)
+                e.currentTarget.value = fromDate;
+                return;
+              }
+              setFromDate(nextFrom);
+            }}
           />
           <span>~</span>
           <input
             type="date"
             className="border rounded-lg px-2 py-2 text-sm"
             value={toDate}
-            onChange={(e) => setToDate(e.target.value)}
+            // ✅ fromDate 기준 최대 31일 범위로 제한
+            min={fromDate}
+            max={addDaysStr(fromDate, 30)}
+            onChange={(e) => {
+              const nextTo = e.currentTarget.value;
+              if (!nextTo) return;
+              if (daysBetweenInclusive(fromDate, nextTo) > 31) {
+                alert("검색 기간은 최대 31일까지만 가능합니다.");
+                e.currentTarget.value = toDate;
+                return;
+              }
+              setToDate(nextTo);
+            }}
           />
         </div>
       </div>
