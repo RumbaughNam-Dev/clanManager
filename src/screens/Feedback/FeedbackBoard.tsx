@@ -271,13 +271,8 @@ export default function FeedbackBoard() {
   async function updateComment() {
     if (!editingCommentId) return;
     try {
-      await fetch(`/v1/feedback/comments/${editingCommentId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ content: commentText.trim() }),
-      }).then(async (r) => {
-        if (!r.ok) throw new Error((await r.json())?.message ?? "댓글 수정 실패");
+      await patchJSON(`/v1/feedback/comments/${editingCommentId}`, {
+        content: commentText.trim(),
       });
       setEditingCommentId(null);
       setCommentText("");
