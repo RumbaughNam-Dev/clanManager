@@ -1,6 +1,6 @@
 // src/screens/Feedback/FeedbackBoard.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
-import { postJSON } from "@/lib/http";
+import { postJSON, getJSON, patchJSON } from "@/lib/http";
 import { useAuth } from "@/contexts/AuthContext";
 import Card from "../../components/common/Card";
 import Pill from "../../components/common/Pill";
@@ -177,8 +177,7 @@ export default function FeedbackBoard() {
     setDetailOpen(true);
     setDetailLoading(true);
     try {
-      const res = await fetch(`/v1/feedback/${id}`, { method: "GET" });
-      const data = (await res.json()) as Detail;
+      const data = await getJSON<Detail>(`/v1/feedback/${id}`);
       setDetail(data);
       setEditingCommentId(null);
       setCommentText("");
@@ -220,15 +219,9 @@ export default function FeedbackBoard() {
   async function submitUpdate() {
     if (!editId) return;
     try {
-      await fetch(`/v1/feedback/${editId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: editTitle.trim(),
-          content: editContent.trim(),
-        }),
-      }).then(async (r) => {
-        if (!r.ok) throw new Error((await r.json())?.message ?? "수정 실패");
+      await patchJSON(`/v1/feedback/${editId}`, {
+        title: editTitle.trim(),
+        content: editContent.trim(),
       });
       setEditOpen(false);
       await loadList(page);
@@ -281,6 +274,7 @@ export default function FeedbackBoard() {
       await fetch(`/v1/feedback/comments/${editingCommentId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ content: commentText.trim() }),
       }).then(async (r) => {
         if (!r.ok) throw new Error((await r.json())?.message ?? "댓글 수정 실패");
