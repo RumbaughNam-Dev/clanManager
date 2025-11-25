@@ -768,7 +768,9 @@ export default function LoggedInDashboard({
       // 3) 방금 생성된 타임라인 찾기
       const { id: timelineId } = await getTimelineIdForBossName(fb.name);
       if (!timelineId) {
-        alert("방금 컷한 보스를 찾을 수 없습니다.");
+        // alert 지우고, 그냥 관리 모달 자동 오픈만 스킵
+        //alert("방금 컷한 보스를 찾을 수 없습니다.");
+        console.warn("[cutFixedBoss] latest timeline not found for", fb.name);
         return;
       }
 
@@ -1639,7 +1641,7 @@ export default function LoggedInDashboard({
                       {fb.location}
                     </div>
                   </div>
-                  
+
                   {/* 젠 시각 + 컷 버튼 한 줄 */}
                   <div className="mt-1 flex items-center justify-between text-xs text-slate-600 gap-2">
                     {/* 젠 시각 영역 */}
