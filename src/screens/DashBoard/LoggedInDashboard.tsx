@@ -747,6 +747,49 @@ export default function LoggedInDashboard({
     }
   }, [filteredAll, uiTick, voiceEnabled]);
 
+  async function cutFixedBoss(fb: FixedBossDto) {
+    if (!confirm(`${fb.name} 보스를 컷 처리하시겠습니까?`)) return;
+
+    try {
+      // 1) 컷 처리
+      await postJSON(`/v1/dashboard/bosses/${fb.id}/cut`, {
+        cutAtIso: new Date().toISOString(),
+        mode: "DISTRIBUTE",
+        items: [],
+        participants: [],
+      });
+
+      // 2) 데이터 갱신
+      await loadBosses();
+      await loadRecentHistory();
+      clearSearch();
+      onForceRefresh?.();
+
+      // 3) 방금 생성된 타임라인 찾기
+      const { id: timelineId } = await getTimelineIdForBossName(fb.name);
+      if (!timelineId) {
+        alert("방금 컷한 보스를 찾을 수 없습니다.");
+        return;
+      }
+
+      // 4) 보스 컷 관리 팝업 바로 열기
+      setManageModalState({
+        open: true,
+        timelineId: String(timelineId),
+      });
+
+    } catch (e: any) {
+      alert(e?.message ?? "고정보스 컷 처리 실패");
+    }
+  }
+
+  function isCutTodayFixed(fb: FixedBossDto): boolean {
+    if (!fb.lastCutAt) return false;
+    const cutDate = formatDateLocal(new Date(fb.lastCutAt));
+    const today = formatDateLocal(new Date());
+    return cutDate === today;
+  }
+
   // 보스 초기화(+5분) + ‘이력 전무’ 1회 멍
   async function runInitCutForAll() {
     if (initBusy) return;
@@ -1546,7 +1589,7 @@ export default function LoggedInDashboard({
       </div>
 
       {/* 하단 20%: 고정 보스 */}
-      <div className="flex-[1.6] min-h-0 border-t mt-3 pt-2 overflow-x-auto">
+      <div className="relative z-[500] flex-[1.6] min-h-0 border-t mt-3 pt-2 overflow-x-auto">
         <h2 className="text-base font-semibold mb-2 text-slate-700">
           고정 보스
         </h2>
@@ -1572,12 +1615,17 @@ export default function LoggedInDashboard({
               const isBlue = isCaught || postLast || afterGrace;
               const isRed = soon || overdueKeep;
               const wrapClass = isRed
-                ? "relative shrink-0 w-[220px] rounded-xl border shadow-sm p-3 text-sm ring-2 ring-rose-400 bg-rose-50/60 animate-blink"
+                ? "relative z-[510] shrink-0 w-[220px] rounded-xl border shadow-sm p-3 text-sm ring-2 ring-rose-400 bg-rose-50/60 animate-blink"
                 : isBlue
-                ? "relative shrink-0 w-[220px] rounded-xl border shadow-sm p-3 text-sm ring-2 ring-sky-300 bg-sky-50/60"
-                : "relative shrink-0 w-[220px] rounded-xl border shadow-sm p-3 text-sm bg-white";
+                ? "relative z-[510] shrink-0 w-[220px] rounded-xl border shadow-sm p-3 text-sm ring-2 ring-sky-300 bg-sky-50/60"
+                : "relative z-[510] shrink-0 w-[220px] rounded-xl border shadow-sm p-3 text-sm bg-white";
 
               const showCountdown = remain > 0 && remain <= HIGHLIGHT_MS;
+
+              // ⬇️ 추가: 하루에 한 번 뜨는 보스인지 + 오늘 이미 컷했는지
+              const isDailyBoss = Number(fb.respawn ?? 0) === 1440;
+              const cutToday = isDailyBoss && isCutTodayFixed(fb);
+
               return (
                 <div key={fb.id} className={wrapClass}>
                   {showCountdown && (
@@ -1591,24 +1639,48 @@ export default function LoggedInDashboard({
                       {fb.location}
                     </div>
                   </div>
-                  <div className="mt-1 text-xs text-slate-600">
-                    젠 시각:{" "}
-                    <span className="font-semibold">
-                      {(() => {
-                        const ns = (fb as any).nextSpawnAt as
-                          | string
-                          | null
-                          | undefined;
-                        if (ns) {
-                          const t = new Date(ns).getTime();
-                          return fmtTimeHM(
-                            Number.isFinite(t) ? t : null
-                          ) ?? "—";
-                        }
-                        if (fb.genTime != null) return fmtDaily(fb.genTime);
-                        return "—";
-                      })()}
-                    </span>
+                  
+                  {/* 젠 시각 + 컷 버튼 한 줄 */}
+                  <div className="mt-1 flex items-center justify-between text-xs text-slate-600 gap-2">
+                    {/* 젠 시각 영역 */}
+                    <div className="flex items-center gap-1 min-w-0">
+                      <span className="shrink-0">젠 시각:</span>
+                      <span className="font-semibold truncate">
+                        {(() => {
+                          const ns = (fb as any).nextSpawnAt as
+                            | string
+                            | null
+                            | undefined;
+                          if (ns) {
+                            const t = new Date(ns).getTime();
+                            return fmtTimeHM(Number.isFinite(t) ? t : null) ?? "—";
+                          }
+                          if (fb.genTime != null) return fmtDaily(fb.genTime);
+                          return "—";
+                        })()}
+                      </span>
+                    </div>
+
+                    {/* 버튼 영역 (젠 시각 오른쪽) */}
+                    <div className="shrink-0">
+                      {isDailyBoss && cutToday ? (
+                        <button
+                          type="button"
+                          disabled
+                          className="px-2 py-[3px] rounded-md bg-emerald-500 text-white text-[10px] cursor-default"
+                        >
+                          금일 보스 컷
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => cutFixedBoss(fb)}
+                          className="px-2 py-[3px] rounded-md bg-slate-900 text-white text-[10px] hover:opacity-90"
+                        >
+                          컷
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               );
