@@ -322,6 +322,18 @@ export default function LoggedInDashboard({
   });
   useEffect(() => { try { localStorage.setItem("voiceEnabled", voiceEnabled ? "1" : "0"); } catch {} }, [voiceEnabled]);
 
+  const [voiceVolume, setVoiceVolume] = useState<number>(() => {
+    try {
+      const v = localStorage.getItem("voiceVolume");
+      const n = v == null ? 0.8 : Number(v);
+      if (!Number.isFinite(n)) return 0.8;
+      return Math.min(1, Math.max(0, n));
+    } catch { return 0.8; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("voiceVolume", String(voiceVolume)); } catch {}
+  }, [voiceVolume]);
+
   const [quickCutText, setQuickCutText] = useState("");
   const [quickSaving, setQuickSaving] = useState(false);
   const [uiTick, setUiTick] = useState(0);
@@ -839,7 +851,7 @@ export default function LoggedInDashboard({
     const ctx = new AudioCtx();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    osc.type = "sine"; osc.frequency.value = 880; gain.gain.value = 0.08;
+    osc.type = "sine"; osc.frequency.value = 880; gain.gain.value = 0.08 * voiceVolume;
     osc.connect(gain); gain.connect(ctx.destination); osc.start();
     return new Promise<void>((resolve) => {
       setTimeout(() => { osc.stop(); ctx.close().finally(() => resolve()); }, durationMs);
@@ -851,6 +863,7 @@ export default function LoggedInDashboard({
       if (!ss || typeof window === "undefined") return reject(new Error("speechSynthesis not available"));
       const utter = new SpeechSynthesisUtterance(text);
       utter.lang = "ko-KR"; utter.rate = 1; utter.pitch = 1;
+      utter.volume = voiceVolume;
       const pickVoice = () => {
         const voices = ss.getVoices?.() || [];
         const ko = voices.find((v) => /ko[-_]KR/i.test(v.lang)) || voices.find((v) => v.lang?.startsWith("ko"));
@@ -1344,6 +1357,21 @@ export default function LoggedInDashboard({
             음성 알림
           </label>
 
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={Math.round(voiceVolume * 100)}
+            onChange={(e) => setVoiceVolume(Number(e.currentTarget.value) / 100)}
+            disabled={!voiceEnabled}
+            className="w-[120px]"
+            aria-label="음성 알림 볼륨"
+            title="볼륨"
+          />
+          <span className="text-xs text-slate-500 w-[36px]">
+            {Math.round(voiceVolume * 100)}%
+          </span>
+
           {/* 칸막이 */}
           <div className="h-6 border-l mx-1.5" />
 
@@ -1387,7 +1415,7 @@ export default function LoggedInDashboard({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                     d="M4 12v.01M4 6v.01M4 18v.01M12 6v12m0 0l-4-4m4 4l4-4" />
             </svg>
-            디코 보스봇 시간 공유
+            디코에게 공유
           </button>
 
           {/* 디코 보스봇 시간 가져오기 (모달 열기) */}
@@ -1400,7 +1428,7 @@ export default function LoggedInDashboard({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                     d="M20 12v.01M20 6v.01M20 18v.01M12 18V6m0 0l-4 4m4-4l4 4" />
             </svg>
-            디코 보스봇 시간 가져오기
+            디코에서 가져오기
           </button>
         </div>
       </div>

@@ -15,6 +15,7 @@ import AdminClanRequests from "./screens/SuperAdmin/AdminClanRequests";
 import AdminBossCycle from "./screens/SuperAdmin/AdminBossCycle";
 import MobileDashboard from "./screens/mobile/MobileDashboard";
 import FeedbackBoard from "./screens/Feedback/FeedbackBoard";
+import RaidManage from "./screens/RaidManage/RaidManage";
 
 export default function App() {
   const [page, setPage] = useState<PageKey>("dashboard");
@@ -93,11 +94,12 @@ export default function App() {
     const base = [
       { key: "dashboard" as PageKey, label: "대시보드" },
       { key: "timelineList" as PageKey, label: "잡은보스 관리" },
-      { key: "treasury" as PageKey, label: "혈비 관리" }, // ← 라벨 정정
+      { key: "raidManage" as PageKey, label: "혈레이드 관리" },
+      { key: "treasury" as PageKey, label: "혈비 관리" },
       { key: "feedback" as PageKey, label: "불편사항 건의하기" },
     ];
     if (role === "ADMIN" || role === "LEADER") {
-      base.splice(1, 0, { key: "members" as PageKey, label: "혈맹원 관리" });
+      base.splice(4, 0, { key: "members" as PageKey, label: "혈맹원 관리" });
     }
     return base;
   }, [role]);
@@ -124,7 +126,7 @@ export default function App() {
                 onClick={() => guardAndNav("dashboard")}
                 className="text-xl font-extrabold focus:outline-none"
               >
-                Clan Manager
+                린엠 매니저
               </button>
               <nav className="hidden md:flex gap-1">
                 {navItems.map((p) => (
@@ -193,6 +195,7 @@ export default function App() {
         {page === "members" && <Members />}
         {page === "timelineList" && <TimelineList />}
         {page === "timelineDetail" && <TimelineDetail role={effectiveRole} />}
+        {page === "raidManage" && <RaidManage />}
         {page === "treasury" && <Treasury role={effectiveRole} />}
         {page === "feedback" && <FeedbackBoard />}
         {page === "login" &&

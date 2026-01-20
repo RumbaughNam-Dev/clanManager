@@ -13,7 +13,7 @@ function joinUrl(path: string) {
   const right = path.startsWith("/") ? path : `/${path}`;
   const url = `${left}${right}`;
   const sep = url.includes('?') ? '&' : '?';
-  return `${url}${sep}via=httpwrap`;   // ← ★ 이거 붙여요
+  return url;
 }
 
 /** Authorization 헤더 구성 */

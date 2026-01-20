@@ -7,7 +7,12 @@ import Modal from "../components/common/Modal";
 import { postJSON } from "@/lib/http";
 import type { Role } from "../contexts/AuthContext";
 
-type EntryType = "SALE_TREASURY" | "MANUAL_IN" | "MANUAL_OUT";
+type EntryType =
+	| "SALE_TREASURY"
+	| "MANUAL_IN"
+	| "MANUAL_OUT"
+	| "PLEDGE_RAID"
+	| "PLEDGE_RAID_CANCEL";
 
 type ListResp = {
   ok: true;
@@ -235,18 +240,32 @@ export default function Treasury({ role }: { role: Role }) {
               </tr>
             ) : (
               rows.map((r) => {
-                const label =
-                  r.entryType === "SALE_TREASURY"
-                    ? "보스 루팅아이템 판매"
-                    : stripTrailingIdPair(r.source);
+              const label =
+                r.entryType === "SALE_TREASURY"
+                  ? "보스 루팅아이템 판매"
+                  : r.entryType === "PLEDGE_RAID"
+                  ? "혈맹 레이드 혈비 귀속"
+                  : r.entryType === "PLEDGE_RAID_CANCEL"
+                  ? "혈맹 레이드 혈비 취소"
+                  : stripTrailingIdPair(r.source);
 
                 return (
                   <tr key={r.id} className="border-t">
                     <td className="py-2">{fmt(r.at)}</td>
                     <td>
-                      {r.type === "IN"
-                        ? <Pill tone="success">유입</Pill>
-                        : <Pill tone="danger">사용</Pill>}
+                      {(() => {
+                        if (r.entryType === "MANUAL_IN") {
+                          return <Pill tone="success">혈비 추가(수동 입력)</Pill>
+                        } else if (r.entryType === "MANUAL_OUT") {
+                          return <Pill tone="danger">혈비 차감(수동 입력)</Pill>
+                        } else if (r.entryType === "SALE_TREASURY") {
+                          return <Pill tone="success">일반보스 템 판매</Pill>
+                        } else if (r.entryType === "PLEDGE_RAID") {
+                          return <Pill tone="success">혈맹 레이드</Pill>
+                        } else if (r.entryType === "PLEDGE_RAID_CANCEL") {
+                          return <Pill tone="danger">혈맹 레이드 (취소)</Pill>
+                        }
+                      })()}
                     </td>
                     <td>
                       {label}
@@ -256,8 +275,8 @@ export default function Treasury({ role }: { role: Role }) {
                         </span>
                       )}
                     </td>
-                    <td className={r.type === "IN" ? "text-green-600" : "text-red-600"}>
-                      {r.type === "IN" ? "+" : "-"}{r.amount.toLocaleString()}
+                    <td className={Number(r.amount ?? 0) < 0 ? "text-red-600" : "text-green-600"}>
+                      {(Number(r.amount ?? 0) < 0 ? "-" : "+")}{Math.abs(Number(r.amount ?? 0)).toLocaleString()}
                     </td>
                     <td>{r.by}</td>
                   </tr>
