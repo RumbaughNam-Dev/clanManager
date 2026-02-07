@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { postJSON } from "@/lib/http";
 import type { BossDto } from "../../types";
-import introPopupImg from "/popup-intro.png";
 
 import BossCutManageModal from "@/components/modals/BossCutManageModal";
 import CutModal from "@/screens/DashBoard/CutModal";
@@ -311,8 +310,6 @@ export default function LoggedInDashboard({
   // ⬇️ 추가: 액션 후 억제 상태(끝나는 ms) 저장
   const actionSilenceRef = useRef<Map<string, number>>(new Map());
 
-  // 팝업용
-  const [introOpen, setIntroOpen] = useState(true);
 
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(() => {
     try {
@@ -346,6 +343,8 @@ export default function LoggedInDashboard({
   const [quickCutText, setQuickCutText] = useState("");
   const [quickSaving, setQuickSaving] = useState(false);
   const [uiTick, setUiTick] = useState(0);
+  const [updatePopupOpen, setUpdatePopupOpen] = useState(false);
+  const [updateHide7d, setUpdateHide7d] = useState(false);
 
   useEffect(() => {
     const t = setInterval(() => setUiTick((x) => (x + 1) % 3600), 1000);
@@ -361,15 +360,19 @@ export default function LoggedInDashboard({
   }, [refreshTick]);
 
   useEffect(() => {
-    const saved = localStorage.getItem("intro-hide-today");
-    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-
-    if (saved === today) {
-      setIntroOpen(false); // 오늘은 팝업 숨김
-    } else {
-      setIntroOpen(true); // 오늘이 아니면 팝업 표시
-    }
+    try {
+      const until = localStorage.getItem("update-popup-hide-until");
+      if (until) {
+        const ts = Number(until);
+        if (Number.isFinite(ts) && ts > Date.now()) {
+          setUpdatePopupOpen(false);
+          return;
+        }
+      }
+    } catch {}
+    setUpdatePopupOpen(true);
   }, []);
+
 
   const lastNextSpawnRef = useRef<Map<string, number>>(new Map());
   const missedWarnSetRef = useRef<Set<string>>(new Set());
@@ -453,11 +456,6 @@ export default function LoggedInDashboard({
     return (occ as number) <= nowMs ? (occ as number) + DAY : (occ as number);
   }
 
-  function onHideToday() {
-    const today = new Date().toISOString().slice(0, 10);
-    localStorage.setItem("intro-hide-today", today);
-    setIntroOpen(false);
-  }
 
   /** 서버 로드 */
   async function loadBosses() {
@@ -1905,113 +1903,62 @@ export default function LoggedInDashboard({
         />
       )}
 
-      {/* 처음 대시보드 들어왔을때만 팝업 */}
-      {introOpen && (
+      {/* 기능 업데이트 안내 팝업 */}
+      {updatePopupOpen && (
         <div
           className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/50"
           aria-modal="true"
           role="dialog"
         >
-          <div
-            className="relative bg-white rounded-2xl shadow-xl overflow-hidden"
-            style={{ width: "460px", height: "640px" }}
-          >
-            {/* 배경 이미지 */}
-            <img
-              src={introPopupImg}
-              alt="intro popup"
-              className="w-full h-full object-cover"
-            />
+          <div className="relative bg-white rounded-2xl shadow-xl w-[520px] max-w-[92vw] p-6">
+            <h2 className="text-lg font-bold mb-3">기능 업데이트 안내 (2026.02.07)</h2>
 
-            {/* 🔥 상단 영역 (전체의 40%) */}
-            <div className="pointer-events-none absolute inset-0 flex flex-col">
-              
-              {/* 상단 타이틀 영역 (40%) */}
-              <div className="flex flex-1 justify-center items-center" style={{ height: "40%" }}>
-                <h2
-                  className="text-[27px] font-extrabold text-amber-300 drop-shadow-[0_3px_6px_rgba(0,0,0,1)] text-center"
-                  style={{ letterSpacing: "1px" }}
-                >
-                  관심 주셔서 감사합니다!!
-                </h2>
-              </div>
-
-              {/* 👇 아래 본문 박스는 그대로 유지 */}
-              <div className="flex flex-col justify-end px-6 pb-10" style={{ height: "52%" }}>
-                <div className="pointer-events-none bg-black/65 rounded-2xl px-4 py-4 text-[12px] leading-relaxed text-slate-50 shadow-[0_4px_14px_rgba(0,0,0,0.75)] space-y-3">
-
-                  {/* 1단락 */}
-                  <p>
-                    - 개인 개발자가 만든 사이트입니다.{" "}
-                    <span className="text-[13px] font-semibold text-amber-300">디자인</span>
-                    을 예쁘게 입히고 싶지만, 아직 감각이 부족합니다. ㅠㅠ
-                    <br />
-                    디자이너를 따로 고용할 여유도 없어서, 당분간은 지금 이 느낌으로 운영하려고 합니다.
-                  </p>
-
-                  {/* 2단락 */}
-                  <p>
-                    - 사이트를 이용하시다가{" "}
-                    <span className="text-[13px] font-semibold text-rose-300">불편한 점</span>
-                    이나 오류가 있다면 상단 메뉴의{" "}
-                    <span className="text-[13px] font-semibold text-rose-300">「불편사항 건의하기」</span>
-                    에 남겨주시거나,
-                    <br />
-                    010-3934-5039 (업무용 번호)로 편하게 연락 주세요!
-                  </p>
-
-                  {/* 3단락 */}
-                  <p>
-                    - 지인들에게도 많이 전파해 주시면 정말 큰 힘이 됩니다.{" "}
-                    <span className="text-[13px] font-semibold text-emerald-300">추천해주실수록 많이 활성화</span>
-                    되고,
-                    <br />
-                    <span className="text-[13px] font-semibold text-emerald-300">더 좋은 사이트로 거듭</span>
-                    날 수 있도록 계속 개선하겠습니다.
-                  </p>
-
-                  {/* 4단락 */}
-                  <p>
-                    - 물론{" "}
-                    <span className="text-[13px] font-semibold text-sky-300">광고</span>
-                    도 받습니다. 사이트 이용에 최대한 방해되지 않는 방향으로 운영할 예정이고,
-                    <br />
-                    <span className="text-[13px] font-semibold text-sky-300">광고 문의</span>
-                    도 위의 핸드폰 번호로 언제든 연락 주시면 감사하겠습니다!
-                  </p>
-
+            <div className="text-sm text-slate-700 space-y-3">
+              <div>
+                <div className="font-semibold">1. 혈맹 레이드 입력 기능 완성</div>
+                <div className="ml-4 mt-1 space-y-1">
+                  <div>1.1. 혈맹 레이드 보스별 컷 기능</div>
+                  <div>1.2. 혈맹 보스별 드랍템, 루팅자, 참여자 및 혈비귀속, 드랍템 분배 형태로 정보 저장 가능</div>
+                  <div>1.3. 혈비귀속시 아이템 판매 완료 처리하면 자동으로 혈비로 등록됨.</div>
+                  <div>1.4. 혈비귀속이 아닌 경우 아이템 판매 후 참여자 설정 (스크린샷으로 등록 가능) 후 개인별로 분배 가능</div>
                 </div>
               </div>
+              <div>
+                <div className="font-semibold">2. 보스 알림 음성 증폭기능 추가</div>
+                <div className="ml-4 mt-1">2.1. 보스 알림 목소리 소리가 너무 작아서 불편하다는 불편 건의 사항에 따라 기능 추가</div>
+              </div>
             </div>
 
-            {/* 🔥 오늘 하루 보지 않기 (하단 간격 넓힘: bottom-8) */}
-            <div className="absolute left-4 bottom-4 flex items-center gap-2 text-white text-[12px] pointer-events-auto">
-              <input
-                id="hide-today"
-                type="checkbox"
-                onChange={onHideToday}
-                className="w-4 h-4 cursor-pointer"
-              />
-              <label
-                htmlFor="hide-today"
-                className="cursor-pointer select-none"
-                onClick={onHideToday}
-              >
-                오늘 하루 보지 않기
+            <div className="mt-6 flex items-center justify-between">
+              <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={updateHide7d}
+                  onChange={(e) => setUpdateHide7d(e.currentTarget.checked)}
+                  className="w-4 h-4"
+                />
+                7일간 보지 않기
               </label>
+              <button
+                type="button"
+                className="px-4 py-2 text-sm rounded bg-slate-800 text-white hover:bg-black"
+                onClick={() => {
+                  if (updateHide7d) {
+                    const until = Date.now() + 7 * 24 * 60 * 60 * 1000;
+                    try {
+                      localStorage.setItem("update-popup-hide-until", String(until));
+                    } catch {}
+                  }
+                  setUpdatePopupOpen(false);
+                }}
+              >
+                닫기
+              </button>
             </div>
-
-            {/* 닫기 버튼 */}
-            <button
-              type="button"
-              className="absolute top-2 right-2 px-3 py-1 rounded text-2xl bg-black/40 text-white hover:bg-black/70"
-              onClick={() => setIntroOpen(false)}
-            >
-              ×
-            </button>
           </div>
         </div>
       )}
+
     </div>
   );
 }
