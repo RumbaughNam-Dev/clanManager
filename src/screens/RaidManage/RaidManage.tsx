@@ -3,6 +3,7 @@ import type React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { postJSON } from "@/lib/http";
 import { useAuth } from "@/contexts/AuthContext";
+import ScreenshotOCR from "@/components/modals/ScreenshotOCR";
 
 /** 날짜 유틸 */
 const MS_DAY = 24 * 60 * 60 * 1000;
@@ -115,6 +116,28 @@ type RaidItemServer = {
   isTreasury: boolean;
   isDistributed: boolean;
   distributionMode?: DistributionMode;
+};
+
+type RaidParticipant = {
+  userId: number;
+  loginId: string;
+  nickname: string | null;
+  distributionStatus: "pending" | "distributed" | "none"; // 대기중 / 분배완료 / 미분배
+};
+
+type ClanMember = {
+  userId: number;
+  loginId: string;
+  nickname: string | null;
+  role: "LEADER" | "ADMIN" | "MEMBER"; // 군주, 간부, 혈원
+};
+
+type RaidParticipantWithDistribution = {
+  userId: number;
+  loginId: string;
+  nickname: string | null;
+  distAmount?: number | null;
+  distYn?: "Y" | "N" | null;
 };
 
 /** 한글 초성 검색 유틸 */
@@ -285,6 +308,12 @@ export default function RaidManage() {
   const [looterActiveIndexMap, setLooterActiveIndexMap] = useState<
     Record<number, number>
   >({});
+  const looterIgnoreChangeRef = useRef<Record<number, boolean>>({});
+  
+  /** 현재 분배 진행 중인 아이템 ID */
+  const [currentDistributingItemId, setCurrentDistributingItemId] = useState<number | null>(null);
+  const [participantsItemId, setParticipantsItemId] = useState<number | null>(null);
+  
   const [members, setMembers] = useState<Member[]>([]);
   const [mode, setMode] = useState<"input" | "list" | "edit">("input");
 
@@ -305,6 +334,54 @@ export default function RaidManage() {
   const [bossDistributionMap, setBossDistributionMap] = useState<
     Record<number, DistributionMode>
   >({});
+
+  /** OCR 스크린샷 모달 상태 */
+  const [ocrModalOpen, setOcrModalOpen] = useState(false);
+
+  /** 참여 인원 목록 */
+  const [raidParticipants, setRaidParticipants] = useState<RaidParticipantWithDistribution[]>([]);
+  const [loadingParticipants, setLoadingParticipants] = useState(false);
+
+  /** 혈맹원 선택 모드 */
+  const [clanMembers, setClanMembers] = useState<ClanMember[]>([]);
+  const [selectedMemberIds, setSelectedMemberIds] = useState<Set<number>>(new Set());
+  const [loadingClanMembers, setLoadingClanMembers] = useState(false);
+  const [showMemberSelector, setShowMemberSelector] = useState(false);
+  const isMemberSelectorOpen =
+    distributionMode === "ITEM" &&
+    (showMemberSelector || raidParticipants.length === 0);
+
+  useEffect(() => {
+    if (
+      !currentDistributingItemId ||
+      raidParticipants.length === 0 ||
+      participantsItemId !== currentDistributingItemId
+    )
+      return;
+    const allDistributed = raidParticipants.every((p) => p.distYn === "Y");
+    setSavedItems((prev) =>
+      prev.map((item) =>
+        item.id === currentDistributingItemId
+          ? { ...item, isDistributed: allDistributed }
+          : item
+      )
+    );
+  }, [currentDistributingItemId, participantsItemId, raidParticipants]);
+
+  /** 정렬된 혈맹원 목록 (군주>간부>혈원, 각 그룹 내 가나다순) */
+  const sortedClanMembers = useMemo(() => {
+    const roleOrder: Record<string, number> = {
+      ADMIN: 0,
+      LEADER: 1,
+      MEMBER: 2,
+    };
+
+    return [...clanMembers].sort((a, b) => {
+      const roleCompare = roleOrder[a.role] - roleOrder[b.role];
+      if (roleCompare !== 0) return roleCompare;
+      return a.loginId.localeCompare(b.loginId, "ko-KR");
+    });
+  }, [clanMembers]);
 
   /** 처음 로드시 현재 주 자동 선택 */
   useEffect(() => {
@@ -499,6 +576,77 @@ export default function RaidManage() {
     })();
   }, [selectedWeek, clanId, bossMetas.length]);
 
+  /** 선택된 주의 참여 인원 조회 */
+  useEffect(() => {
+    if (!selectedWeek || !activeBossForPopup) return;
+
+    console.log("activeBossForPopup 구조:", activeBossForPopup);
+    
+    setLoadingParticipants(true);
+    // 새로운 보스 선택 시 분배 진행 상태 초기화
+    setCurrentDistributingItemId(null);
+    
+    (async () => {
+      try {
+        const payload = {
+          year: selectedWeek.year,
+          month: selectedWeek.month,
+          week: selectedWeek.week,
+          clanId: clanId,
+          bossMetaId: activeBossForPopup.bossMetaId,
+        };
+        console.log("참여 인원 조회 payload:", payload);
+        
+        const res = await postJSON<{ participants: RaidParticipantWithDistribution[] }>(
+          "/v1/pledge-raid/participants",
+          payload
+        );
+        console.log("참여 인원 응답:", res);
+        
+        const nextParticipants = res.participants ?? [];
+        setRaidParticipants(nextParticipants);
+        setShowMemberSelector(
+          distributionMode === "ITEM" && nextParticipants.length === 0
+        );
+        setSelectedMemberIds(new Set());
+      } catch (e) {
+        console.error("참여 인원 조회 실패:", e);
+        setRaidParticipants([]);
+      } finally {
+        setLoadingParticipants(false);
+      }
+    })();
+  }, [selectedWeek, activeBossForPopup, clanId]);
+
+  /** 혈맹 전체 멤버 조회 (멤버 선택 모드) */
+  useEffect(() => {
+    if (!isMemberSelectorOpen || !selectedWeek || !activeBossForPopup) return;
+
+    setLoadingClanMembers(true);
+    (async () => {
+      try {
+        const res = await postJSON<{ members: ClanMember[] }>(
+          "/v1/pledge-raid/clanMembers",
+          { clanId }
+        );
+        console.log("혈맹원 목록 응답:", res);
+        setClanMembers(res.members ?? []);
+      } catch (e) {
+        console.error("혈맹원 조회 실패:", e);
+        setClanMembers([]);
+      } finally {
+        setLoadingClanMembers(false);
+      }
+    })();
+  }, [isMemberSelectorOpen, clanId, selectedWeek, activeBossForPopup]);
+
+  useEffect(() => {
+    if (distributionMode === "TREASURY") {
+      setShowMemberSelector(false);
+      setSelectedMemberIds(new Set());
+    }
+  }, [distributionMode]);
+
     useEffect(() => {
     if (!activeBossForPopup || !selectedWeek) return;
 
@@ -514,6 +662,7 @@ export default function RaidManage() {
             bossMetaId: activeBossForPopup.bossMetaId,
           }
         );
+        console.log("items/list 응답:", res);
 
         // ✅ 보스 결과 기준으로만 모드 결정
         setDistributionMode(res.isTreasury ? "TREASURY" : "ITEM");
@@ -529,22 +678,7 @@ export default function RaidManage() {
           return;
         }
 
-        const mapped: DropItem[] = items.map((it, idx) => {
-          const mem = members.find((m) => m.id === it.rootUserId);
-          const looterName = mem?.nickname || mem?.loginId || String(it.rootUserId);
-          return {
-            id: Number(it.id),    // ✅ 서버 id 그대로 사용
-            itemName: it.itemName,
-            looterId: Number(it.rootUserId),
-            looterName,
-            salePrice: it.soldPrice ?? null,
-            isSold: it.isSold ?? false,
-            isTreasury: false,    // 이제 의미 없음(보스 단위)
-            isDistributed: it.isDistributed ?? false,
-          };
-        });
-
-        setSavedItems(mapped);
+        setSavedItems((prev) => mapRaidItems(items, prev));
         setMode("list");
       } catch (e) {
         console.error("failed to load raid items", e);
@@ -690,9 +824,29 @@ export default function RaidManage() {
   
     setDraftRows(createInitialDraftRows());
     setSavedItems([]);
+    setRaidParticipants([]);
     setLooterActiveIndexMap({});
+    setCurrentDistributingItemId(null);
     draftRowIdRef.current = 6;
     setMode("input");
+  }
+
+  function mapRaidItems(items: RaidItemServer[], prevItems: DropItem[]) {
+    return items.map((it) => {
+      const mem = members.find((m) => m.id === it.rootUserId);
+      const looterName = mem?.nickname || mem?.loginId || String(it.rootUserId);
+      const prev = prevItems.find((p) => p.id === Number(it.id));
+      return {
+        id: Number(it.id),
+        itemName: it.itemName,
+        looterId: Number(it.rootUserId),
+        looterName,
+        salePrice: it.soldPrice ?? null,
+        isSold: it.isSold ?? false,
+        isTreasury: false,
+        isDistributed: it.isDistributed ?? prev?.isDistributed ?? false,
+      };
+    });
   }
 
   /** 루팅자 선택 헬퍼 */
@@ -730,6 +884,220 @@ export default function RaidManage() {
     });
   }
 
+  /** OCR 스크린샷에서 혈맹원 선택 처리 */
+  function handleOCRSelect(selectedMembers: Array<{ name: string; memberId: number | null }>) {
+    // 1) 선택된 혈맹원들을 드래프트에 추가
+    selectedMembers.forEach(({ name, memberId }) => {
+      if (memberId !== null && draftRows.length < MAX_DRAFT_ROWS) {
+        const member = members.find((m) => m.id === memberId);
+        if (member) {
+          const newRow: DraftRow = {
+            id: draftRowIdRef.current++,
+            itemName: "",
+            looterInput: member.nickname || member.loginId,
+            looterId: memberId,
+          };
+          setDraftRows((prev) => {
+            if (prev.length >= MAX_DRAFT_ROWS) return prev;
+            return [...prev, newRow];
+          });
+        }
+      }
+    });
+
+    // 2) 선택된 혈맹원 아이디를 체크박스에 반영
+    const ocrMemberIds = selectedMembers
+      .filter(m => m.memberId !== null)
+      .map(m => m.memberId as number);
+    
+    const newSelectedIds = new Set(selectedMemberIds);
+    ocrMemberIds.forEach(id => newSelectedIds.add(id));
+    setSelectedMemberIds(newSelectedIds);
+  }
+
+  /** 혈맹원 선택/해제 */
+  function toggleMemberSelection(userId: number) {
+    const newSet = new Set(selectedMemberIds);
+    if (newSet.has(userId)) {
+      newSet.delete(userId);
+    } else {
+      newSet.add(userId);
+    }
+    setSelectedMemberIds(newSet);
+  }
+
+  /** 모든 혈맹원 선택/해제 */
+  function toggleSelectAllMembers() {
+    if (selectedMemberIds.size === sortedClanMembers.length) {
+      // 모두 선택되어 있으면 전부 해제
+      setSelectedMemberIds(new Set());
+    } else {
+      // 전부 선택
+      const allIds = new Set(sortedClanMembers.map(m => m.userId));
+      setSelectedMemberIds(allIds);
+    }
+  }
+
+  /** 아이템 분배하기: 판매가를 참여자 수로 n빵 */
+  function handleDistributeItem(itemId: number) {
+    const item = savedItems.find(it => it.id === itemId);
+    if (!item || !item.isSold || item.salePrice == null || raidParticipants.length === 0) {
+      alert("판매 완료된 아이템이 필요합니다.");
+      return;
+    }
+    if (!selectedWeek || !activeBossForPopup) return;
+
+    setCurrentDistributingItemId(itemId);
+    setParticipantsItemId(null);
+    setLoadingParticipants(true);
+
+    (async () => {
+      try {
+        const res = await postJSON<{ participants: RaidParticipantWithDistribution[] }>(
+          "/v1/pledge-raid/participants",
+          {
+            year: selectedWeek.year,
+            month: selectedWeek.month,
+            week: selectedWeek.week,
+            clanId: clanId,
+            bossMetaId: activeBossForPopup.bossMetaId,
+            itemId,
+          }
+        );
+      setRaidParticipants(res.participants ?? []);
+      setParticipantsItemId(null);
+      } catch (e) {
+        console.error("참여 인원 조회 실패:", e);
+      } finally {
+        setLoadingParticipants(false);
+      }
+    })();
+  }
+
+  /** 참여자에게 아이템 분배 완료 (아이템 단위) */
+  async function handleCompleteDistribution(itemId: number, userId: number) {
+    if (!currentDistributingItemId || !selectedWeek || !activeBossForPopup) return;
+
+    try {
+      const item = savedItems.find(it => it.id === itemId);
+      if (!item || !item.salePrice) return;
+
+      const amountPerParticipant = Math.floor(item.salePrice / raidParticipants.length);
+
+      // 아이템별 분배 완료 처리 (complete-distribution)
+      const updatePayload = {
+        year: selectedWeek.year,
+        month: selectedWeek.month,
+        week: selectedWeek.week,
+        clanId: clanId,
+        bossMetaId: activeBossForPopup.bossMetaId,
+        itemId: itemId,
+        userId,
+        distributionAmount: amountPerParticipant,
+      };
+
+      console.log("분배 요청 payload:", updatePayload);
+
+      const updateResponse = await postJSON<{
+        ok: boolean;
+        data?: {
+          year: number;
+          month: number;
+          week: number;
+          clanId: number;
+          bossMetaId: number;
+          userId: number;
+          dropItemId: number;
+          distAmount: number;
+          distYn: "Y" | "N" | null;
+        };
+        message?: string;
+      }>("/v1/pledge-raid/complete-distribution", updatePayload);
+
+      if (!updateResponse.ok) {
+        throw new Error(updateResponse.message || "분배 완료 처리 실패");
+      }
+
+      // 분배 완료 후 서버 데이터 다시 조회로 상태 동기화
+      setCurrentDistributingItemId(itemId);
+
+      // 참여자 데이터 + 아이템 목록 다시 조회 (DB 최신 상태 반영)
+      if (selectedWeek && activeBossForPopup) {
+        // 1) 참여자 데이터 조회
+        const participantsRes = await postJSON<{ participants: RaidParticipantWithDistribution[] }>(
+          "/v1/pledge-raid/participants",
+          {
+            year: selectedWeek.year,
+            month: selectedWeek.month,
+            week: selectedWeek.week,
+            clanId: clanId,
+            bossMetaId: activeBossForPopup.bossMetaId,
+            itemId: itemId,
+          }
+        );
+        setRaidParticipants(participantsRes.participants ?? []);
+
+        // 2) 아이템 목록 조회 (isDistributed 상태 동기화)
+        const itemsRes = await postJSON<{ ok: boolean; isTreasury: boolean; items: RaidItemServer[] }>(
+          "/v1/pledge-raid/items/list",
+          {
+            year: selectedWeek.year,
+            month: selectedWeek.month,
+            week: selectedWeek.week,
+            clanId,
+            bossMetaId: activeBossForPopup.bossMetaId,
+          }
+        );
+        console.log("items/list 응답(분배후):", itemsRes);
+
+        const items = itemsRes.items ?? [];
+        setSavedItems((prev) => mapRaidItems(items, prev));
+      }
+    } catch (error) {
+      console.error("분배 완료 처리 중 오류:", error);
+      alert("분배 완료 처리 중 오류가 발생했습니다");
+    }
+  }
+
+  /** 선택된 혈맹원 저장 */
+  async function handleSaveParticipants() {
+    if (!selectedWeek || !activeBossForPopup || selectedMemberIds.size === 0) return;
+
+    try {
+      const participants = Array.from(selectedMemberIds).map((userId) => ({
+        year: selectedWeek.year,
+        month: selectedWeek.month,
+        week: selectedWeek.week,
+        clanId: clanId,
+        bossMetaId: activeBossForPopup.bossMetaId,
+        userId,
+      }));
+
+      console.log("참여자 저장 payload:", participants);
+
+      await postJSON("/v1/pledge-raid/add-participants", { participants });
+
+      // 저장 후 다시 조회
+      const res = await postJSON<{ participants: RaidParticipantWithDistribution[] }>(
+        "/v1/pledge-raid/participants",
+        {
+          year: selectedWeek.year,
+          month: selectedWeek.month,
+          week: selectedWeek.week,
+          clanId: clanId,
+          bossMetaId: activeBossForPopup.bossMetaId,
+        }
+      );
+      setRaidParticipants(res.participants ?? []);
+      setParticipantsItemId(null);
+      setShowMemberSelector(false);
+      setSelectedMemberIds(new Set());
+    } catch (e) {
+      console.error("참여자 저장 실패:", e);
+      alert("참여자 저장 중 오류가 발생했습니다");
+    }
+  }
+
   /** 행 삭제 (수정 모드에서 사용) */
   function handleDeleteRow(rowId: number) {
     const base = savedItems.find((it) => it.id === rowId);
@@ -739,6 +1107,12 @@ export default function RaidManage() {
       );
       return;
     }
+    if (distributionMode === "ITEM" && base && base.isSold && !base.isDistributed) {
+      const ok = window.confirm(
+        "분배 중인 아이템입니다. 삭제하면 분배 정보가 삭제됩니다. 계속하시겠습니까?"
+      );
+      if (!ok) return;
+    }
 
     setDraftRows((prev) => prev.filter((r) => r.id !== rowId));
     // 실제 DB 반영은 저장 버튼에서 처리
@@ -747,6 +1121,17 @@ export default function RaidManage() {
   /** 초안/수정 저장 → savedItems 재구성 + 서버 저장 + 리스트 모드 전환 */
   async function handleSaveDraftRows() {
     if (!activeBossForPopup || !selectedWeek) return;
+
+    const invalidLooterRows = draftRows.filter((r) => {
+      const hasInput =
+        r.itemName.trim().length > 0 || r.looterInput.trim().length > 0;
+      return hasInput && r.looterId == null;
+    });
+
+    if (invalidLooterRows.length > 0) {
+      alert("루팅자 아이디를 다시 한번 확인해 주세요.");
+      return;
+    }
 
     const validRows = draftRows.filter(
       (r) => r.itemName.trim().length > 0 && r.looterId !== null
@@ -800,25 +1185,11 @@ export default function RaidManage() {
       "/v1/pledge-raid/items/list",
       { year: selectedWeek.year, month: selectedWeek.month, week: selectedWeek.week, clanId, bossMetaId: activeBossForPopup.bossMetaId }
     );
+    console.log("items/list 응답(저장후):", res);
 
     setDistributionMode(res.isTreasury ? "TREASURY" : "ITEM");
     const items = res.items ?? [];
-    const mapped: DropItem[] = items.map((it) => {
-      const mem = members.find((m) => m.id === it.rootUserId);
-      const looterName = mem?.nickname || mem?.loginId || String(it.rootUserId);
-
-      return {
-        id: Number(it.id),
-        itemName: it.itemName,
-        looterId: Number(it.rootUserId),
-        looterName,
-        salePrice: it.soldPrice ?? null,
-        isSold: it.isSold ?? false,
-        isTreasury: false,
-        isDistributed: false,
-      };
-    });
-    setSavedItems(mapped);
+    setSavedItems((prev) => mapRaidItems(items, prev));
     setMode(items.length > 0 ? "list" : "input");
 
     setDraftRows(createInitialDraftRows());
@@ -982,16 +1353,16 @@ export default function RaidManage() {
                 return (
                   <div
                     key={boss.bossMetaId}
-                    className="border border-gray-300 rounded-2xl px-4 py-3 h-[13vh] flex items-center"
+                    className="border border-gray-300 rounded-2xl px-4 py-3 h-32 flex items-center overflow-hidden"
                   >
                     {/* 왼쪽: 텍스트 영역 */}
-                    <div className="flex flex-col justify-center">
+                    <div className="flex flex-col justify-center min-w-0">
                       <div
                         className={`text-lg font-bold mb-3 ${getBossColor(
                           boss.raidLevel
                         )}`}
                       >
-                        {boss.bossName}
+                        <span className="block truncate">{boss.bossName}</span>
                       </div>
 
                       <div className="text-gray-700 text-sm">
@@ -1040,9 +1411,9 @@ export default function RaidManage() {
       {/* 정보입력 팝업 */}
       {activeBossForPopup && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-lg w-[900px] max-w-[95vw] p-5 relative">
+          <div className="bg-white rounded-2xl shadow-lg w-[900px] max-w-[95vw] max-h-[90vh] p-5 relative flex flex-col">
             {/* 헤더 */}
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-4 flex-shrink-0">
               <div className="flex flex-col">
                 <span className="text-sm text-gray-500">
                   {selectedWeek &&
@@ -1061,12 +1432,12 @@ export default function RaidManage() {
             </div>
 
             {/* 본문: 좌측(드랍 아이템) / 우측(참여 인원) */}
-            <div className="flex gap-4">
+            <div className="flex gap-4 flex-1 min-h-0">
               {/* LEFT: 드랍 아이템 / 루팅자 */}
-              <div className="flex-[1.5] border border-gray-200 rounded-xl p-3">
+              <div className="flex-[1.5] border border-gray-200 rounded-xl p-3 flex flex-col min-h-0">
                 {mode === "list" ? (
                     // ───────────────── 리스트 모드 (테이블형) ─────────────────
-                    <div className="text-xs">
+                    <div className="text-xs flex-1 min-h-0 flex flex-col">
                     {/* 타이틀: 고정 문구 */}
                     <div className="flex items-center justify-between mb-2">
                         <span className="text-sm font-semibold">드랍 아이템 목록</span>
@@ -1088,7 +1459,7 @@ export default function RaidManage() {
                         </div>
 
                         {/* 데이터 행들 */}
-                        <div className="divide-y divide-gray-100">
+                        <div className="divide-y divide-gray-100 overflow-y-auto min-h-0">
                             {savedItems.map((item) => {
                             const isLooter = user != null && String(item.looterId) === String(user.id);
                             const canManage = isLooter || isClanAdmin(user);
@@ -1132,32 +1503,54 @@ export default function RaidManage() {
                             let actionNode: React.ReactNode;
 
                             if (!item.isSold) {
-                                if (canManage) {
-                                // 판매 전 + 내 아이템 → 판매완료 버튼
-                                actionNode = (
-                                    <button
-                                    type="button"
-                                    onClick={() => handleCompleteSale(item.id)}
-                                    className="px-2 py-0.5 rounded bg-blue-600 text-white text-[11px]"
-                                    >
-                                    판매완료처리
-                                    </button>
-                                );
-                                } else {
-                                // 판매 전 + 남의 아이템 → 텍스트만
-                                actionNode = (
-                                    <span className="text-[11px] text-gray-700">판매중</span>
-                                );
-                                }
-                            } else if (distributionMode === "ITEM" && !item.isDistributed) {
+                              // 판매 이전 → 판매처리 버튼
                               if (canManage) {
                                 actionNode = (
                                   <button
                                     type="button"
-                                    className="px-2 py-0.5 rounded bg-blue-600 text-white text-[11px]"
-                                    onClick={() => {
-                                      alert("분배하기 버튼 클릭됨 (로직 미구현)");
-                                    }}
+                                    onClick={() => handleCompleteSale(item.id)}
+                                    className="px-2 py-0.5 rounded bg-blue-600 text-white text-[11px] hover:bg-blue-700"
+                                  >
+                                    판매처리
+                                  </button>
+                                );
+                              } else {
+                                actionNode = (
+                                  <span className="text-[11px] text-gray-700">판매중</span>
+                                );
+                              }
+                            } else if (distributionMode === "TREASURY") {
+                              // 혈비 귀속 모드
+                              actionNode = (
+                                <span className="px-2 py-0.5 rounded bg-green-600 text-white text-[11px]">
+                                  혈비귀속 완료
+                                </span>
+                              );
+                            } else if (item.isDistributed) {
+                              // 모든 참여자 분배 완료 → 분배완료 (클릭 시 상세 확인 가능)
+                              actionNode = (
+                                <button
+                                  type="button"
+                                  className="px-2 py-0.5 rounded bg-green-600 text-white text-[11px] font-semibold hover:bg-green-700"
+                                  onClick={() => handleDistributeItem(item.id)}
+                                >
+                                  분배완료
+                                </button>
+                              );
+                            } else if (item.isSold) {
+                              // 판매완료 + 분배 미완료
+                              if (raidParticipants.length === 0) {
+                                actionNode = (
+                                  <span className="px-2 py-0.5 rounded bg-gray-200 text-gray-700 text-[11px]">
+                                    분배 준비중
+                                  </span>
+                                );
+                              } else if (canManage) {
+                                actionNode = (
+                                  <button
+                                    type="button"
+                                    className="px-2 py-0.5 rounded bg-blue-600 text-white text-[11px] hover:bg-blue-700"
+                                    onClick={() => handleDistributeItem(item.id)}
                                   >
                                     분배하기
                                   </button>
@@ -1167,19 +1560,8 @@ export default function RaidManage() {
                                   <span className="text-[11px] text-gray-700">분배 진행 중</span>
                                 );
                               }
-                            } else if (distributionMode === "TREASURY") {
-                              actionNode = (
-                                <span className="px-2 py-0.5 rounded bg-green-600 text-white text-[11px]">
-                                  혈비귀속 완료
-                                </span>
-                              );
                             } else {
-                                // 분배 완료
-                                actionNode = (
-                                <span className="text-[11px] font-semibold text-green-600">
-                                    분배 완료
-                                </span>
-                                );
+                              actionNode = null;
                             }
 
                             return (
@@ -1205,23 +1587,32 @@ export default function RaidManage() {
                         </>
                     )}
 
-                    {/* 리스트 하단: 수정 버튼 (원래 저장 버튼 위치로 이동) */}
-                    <div className="flex items-center justify-end mt-3">
-                        <button
+                    {/* 리스트 하단: 수정 버튼 */}
+                    <div className="flex items-center justify-end mt-3 flex-shrink-0">
+                      <button
                         type="button"
                         onClick={enterEditModeFromList}
                         className="px-3 py-1 rounded text-xs bg-gray-800 text-white hover:bg-black"
-                        >
+                      >
                         수정
-                        </button>
+                      </button>
                     </div>
                     </div>
                 ) : (
                   // ───────────────── 입력 / 수정 모드 ─────────────────
-                  <>
+                  <div className="flex-1 min-h-0 flex flex-col">
                     <div className="text-sm font-semibold mb-2">드랍 아이템 목록</div>
 
-                    <div className="space-y-2 mb-2 max-h-56 overflow-y-auto pr-1">
+                    {mode === "edit" && (
+                      <div className="grid grid-cols-[2fr,1.4fr,0.9fr,0.6fr] text-[11px] font-semibold text-gray-500 border-b border-gray-200 pb-1 mb-2">
+                        <div>드랍 아이템</div>
+                        <div>루팅자</div>
+                        <div className="text-center">판매상태</div>
+                        <div className="text-right">삭제</div>
+                      </div>
+                    )}
+
+                    <div className="space-y-2 mb-2 overflow-y-auto pr-1 flex-1 min-h-0">
                       {draftRows.map((row) => {
                         const q = row.looterInput;
                         const filteredMembers =
@@ -1244,7 +1635,11 @@ export default function RaidManage() {
                         return (
                           <div
                             key={row.id}
-                            className="flex gap-2 text-xs items-start"
+                            className={`text-xs items-start ${
+                              mode === "edit"
+                                ? "grid grid-cols-[2fr,1.4fr,0.9fr,0.6fr] gap-2"
+                                : "flex gap-2"
+                            }`}
                           >
                             {/* 아이템명 */}
                             <input
@@ -1268,7 +1663,7 @@ export default function RaidManage() {
                             />
 
                             {/* 루팅자 + 자동완성 */}
-                            <div className="relative flex-1">
+                            <div className={`relative ${mode === "edit" ? "" : "flex-1"}`}>
                               <input
                                 type="text"
                                 className={`w-full border border-gray-300 rounded px-2 py-1 ${
@@ -1278,6 +1673,10 @@ export default function RaidManage() {
                                 value={row.looterInput}
                                 disabled={locked}
                                 onChange={(e) => {
+                                  if (looterIgnoreChangeRef.current[row.id]) {
+                                    looterIgnoreChangeRef.current[row.id] = false;
+                                    return;
+                                  }
                                   const v = e.target.value;
                                   setDraftRows((prev) =>
                                     prev.map((r) =>
@@ -1317,11 +1716,14 @@ export default function RaidManage() {
                                         filteredMembers.length,
                                     }));
                                   } else if (e.key === "Enter") {
+                                    if (e.nativeEvent.isComposing) return;
                                     e.preventDefault();
+                                    e.stopPropagation();
                                     const target =
                                       filteredMembers[activeIndex] ??
                                       filteredMembers[0];
                                     if (target) {
+                                      looterIgnoreChangeRef.current[row.id] = true;
                                       selectLooter(row.id, target);
                                     }
                                   }
@@ -1361,15 +1763,20 @@ export default function RaidManage() {
                                 )}
                             </div>
 
-                            {/* 삭제 버튼 (수정 모드에서만) */}
+                            {/* 판매상태 + 삭제 (수정 모드에서만) */}
                             {mode === "edit" && (
-                              <button
-                                type="button"
-                                className="mt-1 text-[11px] text-red-600"
-                                onClick={() => handleDeleteRow(row.id)}
-                              >
-                                삭제
-                              </button>
+                              <>
+                                <div className="text-center text-[11px] text-gray-600 pt-1">
+                                  {baseItem?.isSold ? "판매완료" : "판매전"}
+                                </div>
+                                <button
+                                  type="button"
+                                  className="mt-1 text-[11px] text-red-600 text-right"
+                                  onClick={() => handleDeleteRow(row.id)}
+                                >
+                                  삭제
+                                </button>
+                              </>
                             )}
                           </div>
                         );
@@ -1377,7 +1784,7 @@ export default function RaidManage() {
                     </div>
 
                     {/* 추가 / 저장 / (edit 전용) 취소 버튼 */}
-                    <div className="flex items-center justify-between mt-1">
+                    <div className="flex items-center justify-between mt-1 flex-shrink-0">
                     <button
                         type="button"
                         onClick={handleAddDraftRow}
@@ -1411,62 +1818,235 @@ export default function RaidManage() {
                         </button>
                     </div>
                     </div>
-                  </>
+                  </div>
                 )}
               </div>
 
-              {/* RIGHT: 참여 인원 (현재는 설명만) */}
-              <div className="flex-1 border border-gray-200 rounded-xl p-3 bg-gray-50">
-                <div className="text-sm font-semibold mb-2">
-                  참여 인원 (추후 상세 입력 예정)
+              {/* RIGHT: 참여 인원 */}
+              <div className="flex-1 border border-gray-200 rounded-xl p-3 bg-gray-50 flex flex-col min-h-0">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-sm font-semibold">참여 인원</div>
+                {isMemberSelectorOpen && (
+                  <button
+                    type="button"
+                    onClick={() => setOcrModalOpen(true)}
+                    disabled={mode === "input" || savedItems.length === 0}
+                    className="text-xs px-2 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                    >
+                      📸 스크린샷 업로드
+                    </button>
+                  )}
                 </div>
 
-                {distributionMode === "ITEM" ? (
-                  <div className="opacity-50 pointer-events-none text-xs text-gray-500 space-y-2">
-                    <p>
-                      분배 아이템 모드에서는 우선 드랍 아이템 / 판매 여부 /
-                      판매 금액만 입력합니다.
-                    </p>
-                    <p>
-                      참여 인원별 분배 내역 입력은 추후 단계에서
-                      구현합니다. 현재는 비활성화 상태입니다.
-                    </p>
-
-                    <div className="border border-dashed border-gray-300 rounded px-2 py-2">
-                      <div className="mb-1 font-semibold text-gray-600">
-                        참여자 예시 (비활성)
-                      </div>
-                      <div className="space-y-1 text-[11px]">
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            disabled
-                            className="w-3 h-3"
-                          />
-                          <span>혈원A</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            disabled
-                            className="w-3 h-3"
-                          />
-                          <span>혈원B</span>
-                        </div>
-                      </div>
+                {isMemberSelectorOpen ? (
+                  /* 멤버 선택 모드 */
+                  <div className="space-y-2 flex-1 flex flex-col min-h-0">
+                    <div className="text-xs text-gray-600 mb-2">
+                      보스에 참여한 혈원을 선택해주세요.
                     </div>
+
+                    {loadingClanMembers ? (
+                      <div className="text-xs text-gray-500 py-4 text-center flex-1 flex items-center justify-center">
+                        혈맹원 목록 로딩 중...
+                      </div>
+                    ) : (
+                      <>
+                        {/* 멤버 선택 테이블 */}
+                        <div className="border border-gray-200 rounded bg-white flex flex-col flex-1 min-h-0">
+                          {/* 테이블 헤더 - sticky 고정 */}
+                          <div className="grid grid-cols-[30px,1.5fr,1fr] text-[11px] font-semibold text-gray-500 border-b border-gray-200 pb-1 px-1 pt-1 bg-gray-50 flex-shrink-0 sticky top-0 z-10">
+                            <div className="text-center">
+                              <input
+                                type="checkbox"
+                                checked={selectedMemberIds.size === sortedClanMembers.length && sortedClanMembers.length > 0}
+                                onChange={toggleSelectAllMembers}
+                                className="w-4 h-4 cursor-pointer"
+                                title="전체선택"
+                              />
+                            </div>
+                            <div>로그인ID</div>
+                            <div>구분</div>
+                          </div>
+
+                          {/* 테이블 바디 - 스크롤 */}
+                          <div className="overflow-y-auto flex-1">
+                            <div className="space-y-1 p-1">
+                              {sortedClanMembers.map((member) => {
+                                const isSelected = selectedMemberIds.has(member.userId);
+                                const roleLabel =
+                                  member.role === "ADMIN"
+                                    ? "군주"
+                                    : member.role === "LEADER"
+                                    ? "간부"
+                                    : "혈원";
+
+                                return (
+                                  <div
+                                    key={member.userId}
+                                    className={`grid grid-cols-[30px,1.5fr,1fr] p-2 border border-gray-200 rounded text-xs items-center hover:bg-blue-50 transition ${isSelected ? "bg-blue-100 border-blue-300" : ""}`}
+                                  >
+                                    <div className="text-center">
+                                      <input
+                                        type="checkbox"
+                                        checked={isSelected}
+                                        onChange={() =>
+                                          toggleMemberSelection(member.userId)
+                                        }
+                                        className="w-4 h-4 cursor-pointer"
+                                      />
+                                    </div>
+                                    <div className="truncate text-gray-600">
+                                      {member.loginId}
+                                    </div>
+                                    <div className="text-gray-600">
+                                      {roleLabel}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 저장 버튼 영역 */}
+                        <div className="flex gap-2 mt-2">
+                          <button
+                            onClick={handleSaveParticipants}
+                            disabled={selectedMemberIds.size === 0}
+                            className="flex-1 px-3 py-2 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-semibold"
+                          >
+                            저장
+                          </button>
+                          {raidParticipants.length > 0 && (
+                            <button
+                              onClick={() => setShowMemberSelector(false)}
+                              className="flex-1 px-3 py-2 text-xs bg-gray-400 text-white rounded hover:bg-gray-500 font-semibold"
+                            >
+                              취소
+                            </button>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ) : distributionMode === "ITEM" ? (
+                  /* 참여자 표시 모드 */
+                  <div className="space-y-2 flex-1 flex flex-col min-h-0">
+                    {loadingParticipants ? (
+                      <div className="text-xs text-gray-500 py-4 text-center flex-1 flex items-center justify-center">
+                        참여 인원 로딩 중...
+                      </div>
+                    ) : raidParticipants.length === 0 ? (
+                      <div className="flex-1 flex flex-col items-center justify-center bg-white rounded border border-gray-200">
+                        <div className="text-sm text-gray-600 font-medium">참여자를 입력해주세요.</div>
+                      </div>
+                    ) : (
+                      <div className="space-y-1 flex-1 flex flex-col min-h-0">
+                        {/* 분배 시작 전 안내 메시지 */}
+                        {!currentDistributingItemId && savedItems.length > 0 && (
+                          <div className="p-3 bg-blue-50 border border-blue-200 rounded text-xs text-blue-700 mb-2">
+                            좌측에서 아이템을 선택해 주세요.
+                          </div>
+                        )}
+                        {/* 테이블 헤더 - sticky 고정 */}
+                        <div className="grid grid-cols-[1fr,0.8fr,1.2fr] text-[11px] font-semibold text-gray-500 border-b border-gray-200 pb-1 mb-1 sticky top-0 bg-white z-10">
+                          <div>아이디</div>
+                          <div className="text-center">분배금액</div>
+                          <div className="text-center">분배</div>
+                        </div>
+                        {/* 테이블 바디 - 스크롤 */}
+                        <div className="flex-1 overflow-y-auto pr-1 min-h-0">
+                          <div className="space-y-1">
+                            {raidParticipants.map((participant) => {
+                              let amountDisplay = "-";
+                              if (participant.distAmount != null) {
+                                amountDisplay = String(participant.distAmount);
+                              } else if (currentDistributingItemId) {
+                                const item = savedItems.find(
+                                  (it) => it.id === currentDistributingItemId
+                                );
+                                if (item && item.salePrice) {
+                                  const calculatedAmount = Math.floor(
+                                    item.salePrice / raidParticipants.length
+                                  );
+                                  amountDisplay = String(calculatedAmount);
+                                }
+                              }
+
+                              let actionNode: React.ReactNode = null;
+                              if (!currentDistributingItemId) {
+                                actionNode = (
+                                  <span className="text-[10px] font-medium text-gray-400">
+                                    -
+                                  </span>
+                                );
+                              } else if (participant.distYn === "Y") {
+                                actionNode = (
+                                  <span className="px-2 py-0.5 rounded bg-green-600 text-white text-[10px] font-medium">
+                                    분배완료
+                                  </span>
+                                );
+                              } else {
+                                actionNode = (
+                                  <button
+                                    type="button"
+                                    className="px-2 py-0.5 rounded bg-blue-600 text-white text-[10px] hover:bg-blue-700"
+                                    onClick={() => {
+                                      if (currentDistributingItemId) {
+                                        handleCompleteDistribution(
+                                          currentDistributingItemId,
+                                          participant.userId
+                                        );
+                                      }
+                                    }}
+                                  >
+                                    분배하기
+                                  </button>
+                                );
+                              }
+
+                              return (
+                                <div
+                                  key={participant.userId}
+                                  className="grid grid-cols-[1fr,0.8fr,1.2fr] p-2 bg-white rounded border border-gray-200 hover:border-gray-300 text-xs items-center"
+                                >
+                                  <div className="truncate">
+                                    {participant.loginId || participant.nickname || String(participant.userId)}
+                                  </div>
+                                  <div className="text-center font-medium">
+                                    {amountDisplay}
+                                  </div>
+                                  <div className="text-center">
+                                    {actionNode}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* 편집 버튼 */}
+                        <button
+                          onClick={() => {
+                            // 현재 참여자들을 선택 상태로 설정
+                            const currentParticipantIds = new Set(
+                              raidParticipants.map(p => p.userId)
+                            );
+                            setSelectedMemberIds(currentParticipantIds);
+                            setShowMemberSelector(true);
+                          }}
+                          className="mt-2 px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 w-full"
+                        >
+                          편집
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ) : (
-                  <div className="text-xs text-gray-500 space-y-2">
-                    <p>
-                      혈비 귀속 모드에서는 아이템 판매 금액이 혈비로
-                      귀속됩니다.
-                    </p>
-                    <p>
-                      판매완료 버튼을 누르면 해당 아이템은{" "}
-                      <span className="font-semibold">혈비귀속 완료</span>로
-                      표시되고, 추가 분배 작업은 필요 없습니다.
-                    </p>
+                  <div className="flex-1 flex items-center justify-center bg-white rounded border border-gray-200">
+                    <div className="text-sm text-gray-600 font-medium">
+                      혈비 귀속 보스 입니다.
+                    </div>
                   </div>
                 )}
               </div>
@@ -1601,6 +2181,15 @@ export default function RaidManage() {
             </div>
             </div>
         </div>
+        )}
+
+        {/* OCR 스크린샷 모달 */}
+        {ocrModalOpen && (
+          <ScreenshotOCR
+            members={members}
+            onSelect={handleOCRSelect}
+            onClose={() => setOcrModalOpen(false)}
+          />
         )}
     </div>
   );

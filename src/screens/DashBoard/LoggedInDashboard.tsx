@@ -333,6 +333,15 @@ export default function LoggedInDashboard({
   useEffect(() => {
     try { localStorage.setItem("voiceVolume", String(voiceVolume)); } catch {}
   }, [voiceVolume]);
+  const [voiceBoosted, setVoiceBoosted] = useState<boolean>(() => {
+    try {
+      const v = localStorage.getItem("voiceBoosted");
+      return v === "1";
+    } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("voiceBoosted", voiceBoosted ? "1" : "0"); } catch {}
+  }, [voiceBoosted]);
 
   const [quickCutText, setQuickCutText] = useState("");
   const [quickSaving, setQuickSaving] = useState(false);
@@ -851,7 +860,8 @@ export default function LoggedInDashboard({
     const ctx = new AudioCtx();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    osc.type = "sine"; osc.frequency.value = 880; gain.gain.value = 0.08 * voiceVolume;
+    const boost = voiceBoosted ? 3 : 1;
+    osc.type = "sine"; osc.frequency.value = 880; gain.gain.value = 0.08 * voiceVolume * boost;
     osc.connect(gain); gain.connect(ctx.destination); osc.start();
     return new Promise<void>((resolve) => {
       setTimeout(() => { osc.stop(); ctx.close().finally(() => resolve()); }, durationMs);
@@ -863,7 +873,8 @@ export default function LoggedInDashboard({
       if (!ss || typeof window === "undefined") return reject(new Error("speechSynthesis not available"));
       const utter = new SpeechSynthesisUtterance(text);
       utter.lang = "ko-KR"; utter.rate = 1; utter.pitch = 1;
-      utter.volume = voiceVolume;
+      const boost = voiceBoosted ? 3 : 1;
+      utter.volume = Math.min(1, voiceVolume * boost);
       const pickVoice = () => {
         const voices = ss.getVoices?.() || [];
         const ko = voices.find((v) => /ko[-_]KR/i.test(v.lang)) || voices.find((v) => v.lang?.startsWith("ko"));
@@ -1371,6 +1382,23 @@ export default function LoggedInDashboard({
           <span className="text-xs text-slate-500 w-[36px]">
             {Math.round(voiceVolume * 100)}%
           </span>
+          <button
+            type="button"
+            className="flex items-center gap-2 text-sm border rounded-md px-2 py-1"
+            onClick={() => {
+              if (voiceBoosted) {
+                setVoiceBoosted(false);
+                return;
+              }
+              const ok = window.confirm(
+                "음량이 현재 기준 3배로 증폭 됩니다. 큰 소리에 조심해주세요. 가급적 작은 음량에서 활성화 후, 음량을 조금씩 늘려주세요."
+              );
+              if (ok) setVoiceBoosted(true);
+            }}
+          >
+            <input type="checkbox" checked={voiceBoosted} readOnly />
+            3배 증폭
+          </button>
 
           {/* 칸막이 */}
           <div className="h-6 border-l mx-1.5" />
