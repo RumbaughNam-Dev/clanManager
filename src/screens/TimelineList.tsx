@@ -209,12 +209,14 @@ export default function TimelineList({ refreshTick }: { refreshTick?: number }) 
   // 추가: 날짜 상태
   const today = new Date();
   const defaultTo = formatDateLocal(today); // ✅ 로컬 오늘 날짜
-  const defaultFrom = formatDateLocal(new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)); // 7일 전
+  const defaultFrom = formatDateLocal(new Date(today.getTime() - 90 * 24 * 60 * 60 * 1000)); // 3개월 전
 
   const [fromDate, setFromDate] = useState(defaultFrom);
   const [toDate, setToDate] = useState(defaultTo);
+  const fromRef = useRef<HTMLInputElement | null>(null);
+  const toRef = useRef<HTMLInputElement | null>(null);
 
-  // ⬇️ 백엔드 에러(31일 초과) 시 되돌릴 '마지막 유효 값'
+  // ⬇️ 백엔드 에러(1년 초과) 시 되돌릴 '마지막 유효 값'
   const prevFromRef = useRef(fromDate);
   const prevToRef = useRef(toDate);
 
@@ -241,9 +243,9 @@ export default function TimelineList({ refreshTick }: { refreshTick?: number }) 
       prevToRef.current = toDate;
     } catch (e: any) {
       const msg = e?.message || e?.toString?.() || "";
-      // ⛑️ 백엔드가 31일 제한으로 400을 던질 때
-      if (msg.includes("31일") || msg.includes("최대 31일")) {
-        alert("검색 기간은 최대 31일까지만 가능합니다.");
+      // ⛑️ 백엔드가 1년 제한으로 400을 던질 때
+      if (msg.includes("365") || msg.includes("1년") || msg.includes("최대")) {
+        alert("검색 기간은 최대 1년까지만 가능합니다.");
         // ✅ 마지막 유효 범위로 되돌리기
         if (fromDate !== prevFromRef.current) setFromDate(prevFromRef.current);
         if (toDate !== prevToRef.current) setToDate(prevToRef.current);
@@ -366,7 +368,7 @@ return (
       <div className="flex flex-wrap items-center gap-2 mb-3 flex-shrink-0">
         {/* 보스명 검색 */}
         <input
-          className="border rounded-lg px-2 py-2 text-sm"
+          className="ui-input"
           placeholder="보스명 검색"
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -374,7 +376,7 @@ return (
 
         {/* 상태 필터 */}
         <select
-          className="border rounded-lg px-2 py-2 text-sm"
+          className="ui-select"
           value={filter}
           onChange={(e) => setFilter(e.target.value as StatusFilter)}
         >
@@ -387,52 +389,80 @@ return (
 
         {/* 오른쪽으로 밀착시키기 → ml-auto */}
         <div className="ml-auto flex items-center gap-2">
-          <input
-            type="date"
-            className="border rounded-lg px-2 py-2 text-sm"
-            value={fromDate}
-            // ✅ toDate 기준 최대 31일 범위로 제한
-            min={addDaysStr(toDate, -30)}
-            max={toDate}
-            onChange={(e) => {
-              const nextFrom = e.currentTarget.value;
-              if (!nextFrom) return;
-              if (daysBetweenInclusive(nextFrom, toDate) > 31) {
-                alert("검색 기간은 최대 31일까지만 가능합니다.");
-                // 상태 변경하지 않음 → 그대로 유지(되돌리기 효과)
-                e.currentTarget.value = fromDate;
-                return;
-              }
-              setFromDate(nextFrom);
-            }}
-          />
+          <div className="ui-date-wrap">
+            <input
+              ref={fromRef}
+              type="date"
+              className="ui-date"
+              value={fromDate}
+              // ✅ toDate 기준 최대 1년 범위로 제한
+              min={addDaysStr(toDate, -365)}
+              max={toDate}
+              onChange={(e) => {
+                const nextFrom = e.currentTarget.value;
+                if (!nextFrom) return;
+                if (daysBetweenInclusive(nextFrom, toDate) > 365) {
+                  alert("검색 기간은 최대 1년까지만 가능합니다.");
+                  // 상태 변경하지 않음 → 그대로 유지(되돌리기 효과)
+                  e.currentTarget.value = fromDate;
+                  return;
+                }
+                setFromDate(nextFrom);
+              }}
+            />
+            <button
+              type="button"
+              className="ui-date-btn"
+              onClick={() => fromRef.current?.showPicker?.()}
+              aria-label="날짜 선택"
+              title="날짜 선택"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path strokeWidth="2" d="M8 2v3M16 2v3M3 8h18M5 12h14M5 16h10" />
+              </svg>
+            </button>
+          </div>
           <span>~</span>
-          <input
-            type="date"
-            className="border rounded-lg px-2 py-2 text-sm"
-            value={toDate}
-            // ✅ fromDate 기준 최대 31일 범위로 제한
-            min={fromDate}
-            max={addDaysStr(fromDate, 30)}
-            onChange={(e) => {
-              const nextTo = e.currentTarget.value;
-              if (!nextTo) return;
-              if (daysBetweenInclusive(fromDate, nextTo) > 31) {
-                alert("검색 기간은 최대 31일까지만 가능합니다.");
-                e.currentTarget.value = toDate;
-                return;
-              }
-              setToDate(nextTo);
-            }}
-          />
+          <div className="ui-date-wrap">
+            <input
+              ref={toRef}
+              type="date"
+              className="ui-date"
+              value={toDate}
+              // ✅ fromDate 기준 최대 1년 범위로 제한
+              min={fromDate}
+              max={addDaysStr(fromDate, 365)}
+              onChange={(e) => {
+                const nextTo = e.currentTarget.value;
+                if (!nextTo) return;
+                if (daysBetweenInclusive(fromDate, nextTo) > 365) {
+                  alert("검색 기간은 최대 1년까지만 가능합니다.");
+                  e.currentTarget.value = toDate;
+                  return;
+                }
+                setToDate(nextTo);
+              }}
+            />
+            <button
+              type="button"
+              className="ui-date-btn"
+              onClick={() => toRef.current?.showPicker?.()}
+              aria-label="날짜 선택"
+              title="날짜 선택"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path strokeWidth="2" d="M8 2v3M16 2v3M3 8h18M5 12h14M5 16h10" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
 
       {/* 표 → rows만 스크롤 */}
       <div className="flex-1 min-h-0 overflow-y-auto">
         <table className="w-full text-sm">
-          <thead className="sticky top-0 bg-white z-10">
-            <tr className="text-left text-xs text-gray-500">
+          <thead className="sticky top-0 bg-slate-900/80 backdrop-blur z-10">
+            <tr className="text-left text-xs text-white/60">
               <th className="py-2">컷 시각</th>
               <th>보스</th>
               <th>기록자</th>
@@ -450,13 +480,13 @@ return (
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={7} className="py-6 text-center text-slate-500">
+                <td colSpan={7} className="py-6 text-center text-white/60">
                   불러오는 중…
                 </td>
               </tr>
             ) : tableRows.length === 0 ? (
               <tr>
-                <td colSpan={7} className="py-6 text-center text-slate-400 italic">
+                <td colSpan={7} className="py-6 text-center text-white/50 italic">
                   기록이 없습니다.
                 </td>
               </tr>
@@ -472,7 +502,7 @@ return (
 
                 if (noData) {
                   return (
-                    <tr key={t.id} className="border-t text-gray-400">
+                    <tr key={t.id} className="border-t border-white/10 text-white/50">
                       <td className="py-2">{fmt(t.cutAt)}</td>
                       <td>{t.bossName}</td>
                       <td>{t.createdBy}</td>
@@ -484,7 +514,7 @@ return (
                         <div className="flex gap-3">
                           <button
                             onClick={() => handleOpenManage(t)}
-                            className="px-2 py-1 rounded bg-slate-900 text-white text-xs"
+                            className="px-2 py-1 rounded bg-white/15 text-white text-xs hover:bg-white/20"
                           >
                             보스 컷 관리
                           </button>
@@ -499,7 +529,7 @@ return (
                                 alert(e?.message ?? "삭제 실패");
                               }
                             }}
-                            className="px-2 py-1 rounded bg-red-600 text-white text-xs"
+                            className="px-2 py-1 rounded bg-rose-500/80 text-white text-xs hover:bg-rose-500"
                           >
                             삭제
                           </button>
@@ -513,8 +543,8 @@ return (
                 return (
                   <tr
                     key={t.id}
-                    className={`border-t ${
-                      s.kind === "DIST_SALE_DONE_UNPAID" ? "bg-orange-100" : ""
+                    className={`border-t border-white/10 ${
+                      s.kind === "DIST_SALE_DONE_UNPAID" ? "bg-orange-500/15" : ""
                     }`}
                   >
                     <td className="py-2">{fmt(t.cutAt)}</td>
@@ -531,7 +561,7 @@ return (
                       <div className="flex gap-3">
                         <button
                           onClick={() => handleOpenManage(t)}
-                          className="px-2 py-1 rounded bg-slate-900 text-white text-xs"
+                          className="px-2 py-1 rounded bg-white/15 text-white text-xs hover:bg-white/20"
                         >
                           보스 컷 관리
                         </button>
@@ -546,7 +576,7 @@ return (
                               alert(e?.message ?? "삭제 실패");
                             }
                           }}
-                          className="px-2 py-1 rounded bg-red-600 text-white text-xs"
+                          className="px-2 py-1 rounded bg-rose-500/80 text-white text-xs hover:bg-rose-500"
                         >
                           삭제
                         </button>

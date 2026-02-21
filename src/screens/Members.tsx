@@ -136,7 +136,7 @@ export default function Members() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 pb-4">
       <PageHeader title="혈맹원 관리" subtitle="추가 / 권한변경 / 삭제" />
 
       <Card>
@@ -177,88 +177,106 @@ export default function Members() {
           <h3 className="font-semibold">혈맹원 목록</h3>
           <span className="text-sm text-gray-500">총 {list.length}명</span>
         </div>
-        {loading ? (
-          <div className="py-8 text-center text-sm text-gray-500">불러오는 중...</div>
-        ) : list.length === 0 ? (
-          <div className="py-8 text-center text-sm text-gray-400 italic">등록된 혈맹원이 없습니다.</div>
-        ) : (
+        <div className="min-h-[280px] max-h-[65vh]">
+          {loading ? (
+            <div className="py-8 text-center text-sm text-gray-500">불러오는 중...</div>
+          ) : list.length === 0 ? (
+            <div className="py-8 text-center text-sm text-gray-400 italic">등록된 혈맹원이 없습니다.</div>
+          ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className="text-left text-gray-500">
-                <tr className="border-b">
-                  <th className="py-2 pr-4">아이디</th>
-                  <th className="py-2 pr-4">권한</th>
-                  <th className="py-2 pr-4">가입일</th>
-                  <th className="py-2 text-right">액션</th>
-                </tr>
-              </thead>
-              <tbody>
-                {list.map((m) => {
-                  const self = user?.loginId === m.loginId;
-                  const isTargetAdmin = m.role === "ADMIN";
-                  const isTargetLeader = m.role === "LEADER";
-                  const isTargetUser = m.role === "USER";
-                  const iAmAdmin = role === "ADMIN";
-                  const iAmLeader = role === "LEADER";
+              <table className="min-w-full text-sm table-fixed">
+                <colgroup>
+                  <col style={{ width: "30%" }} />
+                  <col style={{ width: "15%" }} />
+                  <col style={{ width: "35%" }} />
+                  <col style={{ width: "20%" }} />
+                </colgroup>
+                <thead className="text-left text-white/70 bg-slate-900/80 backdrop-blur">
+                  <tr className="border-b border-white/10">
+                    <th className="py-2 pr-4">아이디</th>
+                    <th className="py-2 pr-4">권한</th>
+                    <th className="py-2 pr-4">가입일</th>
+                    <th className="py-2 text-right">액션</th>
+                  </tr>
+                </thead>
+              </table>
+              <div className="max-h-[52vh] overflow-y-auto pb-3">
+                <table className="min-w-full text-sm table-fixed">
+                  <colgroup>
+                    <col style={{ width: "30%" }} />
+                    <col style={{ width: "15%" }} />
+                    <col style={{ width: "35%" }} />
+                    <col style={{ width: "20%" }} />
+                  </colgroup>
+                  <tbody className="text-white/85">
+                    {list.map((m) => {
+                      const self = user?.loginId === m.loginId;
+                      const isTargetAdmin = m.role === "ADMIN";
+                      const isTargetLeader = m.role === "LEADER";
+                      const isTargetUser = m.role === "USER";
+                      const iAmAdmin = role === "ADMIN";
+                      const iAmLeader = role === "LEADER";
 
-                  return (
-                    <tr key={m.id} className="border-b">
-                      <td className="py-2 pr-4">{m.loginId}</td>
-                      <td className="py-2 pr-4">
-                        {isTargetLeader ? "간부" : isTargetAdmin ? "관리자" : isTargetUser ? "혈맹원" : m.role}
-                      </td>
-                      <td className="py-2 pr-4">{fmtDate(m.createdAt)}</td>
-                      <td className="py-2 text-right space-x-2">
-                        {/* 간부 지정/해제: 관리자만, 자기 자신 금지, 관리자 대상 금지 */}
-                        {iAmAdmin && !self && (
-                          <button
-                            disabled={changingId === m.id || isTargetAdmin}
-                            onClick={() => toggleLeader(m)}
-                            className="px-3 py-1.5 rounded-lg border hover:bg-slate-50 disabled:opacity-50"
-                            title={self ? "자기 자신은 변경할 수 없습니다." : undefined}
-                          >
-                            {isTargetLeader ? "간부 해제" : "간부 지정"}
-                          </button>
-                        )}
+                      return (
+                        <tr key={m.id} className="border-b border-white/10">
+                          <td className="py-2 pr-4">{m.loginId}</td>
+                          <td className="py-2 pr-4">
+                            {isTargetLeader ? "간부" : isTargetAdmin ? "관리자" : isTargetUser ? "혈맹원" : m.role}
+                          </td>
+                          <td className="py-2 pr-4">{fmtDate(m.createdAt)}</td>
+                          <td className="py-2 text-right space-x-2">
+                            {/* 간부 지정/해제: 관리자만, 자기 자신 금지, 관리자 대상 금지 */}
+                            {iAmAdmin && !self && (
+                              <button
+                                disabled={changingId === m.id || isTargetAdmin}
+                                onClick={() => toggleLeader(m)}
+                                className="px-3 py-1.5 rounded-lg border hover:bg-slate-50 disabled:opacity-50"
+                                title={self ? "자기 자신은 변경할 수 없습니다." : undefined}
+                              >
+                                {isTargetLeader ? "간부 해제" : "간부 지정"}
+                              </button>
+                            )}
 
-                        {/* 관리자 위임: 관리자만 / 자기 자신 금지 / 대상은 간부일 때만 노출(정책에 맞춤) */}
-                        {iAmAdmin && !self && isTargetLeader && (
-                          <button
-                            disabled={assigningId === m.id}
-                            onClick={() => assignAdmin(m)}
-                            className="px-3 py-1.5 rounded-lg border hover:bg-slate-50 disabled:opacity-50"
-                          >
-                            관리자 위임
-                          </button>
-                        )}
+                            {/* 관리자 위임: 관리자만 / 자기 자신 금지 / 대상은 간부일 때만 노출(정책에 맞춤) */}
+                            {iAmAdmin && !self && isTargetLeader && (
+                              <button
+                                disabled={assigningId === m.id}
+                                onClick={() => assignAdmin(m)}
+                                className="px-3 py-1.5 rounded-lg border hover:bg-slate-50 disabled:opacity-50"
+                              >
+                                관리자 위임
+                              </button>
+                            )}
 
-                        {/* 삭제: 자기 자신 금지, 간부는 USER만 삭제 가능 */}
-                        <button
-                          disabled={
-                            deletingId === m.id ||
-                            self ||
-                            (iAmLeader && !isTargetUser)
-                          }
-                          onClick={() => remove(m)}
-                          className="px-3 py-1.5 rounded-lg border hover:bg-slate-50 disabled:opacity-50"
-                          title={
-                            self
-                              ? "자기 자신은 삭제할 수 없습니다."
-                              : iAmLeader && !isTargetUser
-                              ? "간부는 혈맹원만 삭제할 수 있습니다."
-                              : undefined
-                          }
-                        >
-                          삭제
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                            {/* 삭제: 자기 자신 금지, 간부는 USER만 삭제 가능 */}
+                            <button
+                              disabled={
+                                deletingId === m.id ||
+                                self ||
+                                (iAmLeader && !isTargetUser)
+                              }
+                              onClick={() => remove(m)}
+                              className="px-3 py-1.5 rounded-lg border hover:bg-slate-50 disabled:opacity-50"
+                              title={
+                                self
+                                  ? "자기 자신은 삭제할 수 없습니다."
+                                  : iAmLeader && !isTargetUser
+                                  ? "간부는 혈맹원만 삭제할 수 있습니다."
+                                  : undefined
+                              }
+                            >
+                              삭제
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
           </div>
-        )}
+          )}
+        </div>
       </Card>
     </div>
   );

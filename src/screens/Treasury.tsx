@@ -182,7 +182,7 @@ export default function Treasury({ role }: { role: Role }) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 text-white">
       <PageHeader
         title="혈비 관리"
         subtitle="투명성 보장: 모든 멤버 열람 가능"
@@ -192,7 +192,7 @@ export default function Treasury({ role }: { role: Role }) {
       <div className="flex gap-2">
         {canUse && (
           <button
-            className="px-3 py-1.5 rounded-lg bg-slate-900 text-white"
+            className="px-3 py-1.5 rounded-lg bg-white/15 text-white hover:bg-white/20"
             onClick={() => {
               setInError(null);
               setOpenIn(true);
@@ -203,7 +203,7 @@ export default function Treasury({ role }: { role: Role }) {
         )}
         {canUse && (
           <button
-            className="px-3 py-1.5 rounded-lg bg-slate-900 text-white"
+            className="px-3 py-1.5 rounded-lg bg-white/15 text-white hover:bg-white/20"
             onClick={() => {
               setOutError(null);
               setOpenOut(true);
@@ -216,8 +216,8 @@ export default function Treasury({ role }: { role: Role }) {
 
       <Card>
         <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-xs text-gray-500">
+          <thead className="sticky top-0 bg-slate-900/80 backdrop-blur">
+            <tr className="text-left text-xs text-white/60">
               <th className="py-2">일시</th>
               <th>구분</th>
               <th>출처/용도</th>
@@ -228,15 +228,15 @@ export default function Treasury({ role }: { role: Role }) {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={5} className="py-6 text-center text-slate-500">불러오는 중…</td>
+                <td colSpan={5} className="py-6 text-center text-white/60">불러오는 중…</td>
               </tr>
             ) : err ? (
               <tr>
-                <td colSpan={5} className="py-6 text-center text-rose-600">{err}</td>
+                <td colSpan={5} className="py-6 text-center text-rose-300">{err}</td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={5} className="py-6 text-center text-slate-400 italic">내역이 없습니다.</td>
+                <td colSpan={5} className="py-6 text-center text-white/50 italic">내역이 없습니다.</td>
               </tr>
             ) : (
               rows.map((r) => {
@@ -249,8 +249,15 @@ export default function Treasury({ role }: { role: Role }) {
                   ? "혈맹 레이드 혈비 취소"
                   : stripTrailingIdPair(r.source);
 
+                const rawAmount = Number(r.amount ?? 0);
+                const isOutLike =
+                  r.type === "OUT" ||
+                  r.entryType === "MANUAL_OUT" ||
+                  r.entryType === "PLEDGE_RAID_CANCEL" ||
+                  (r.source ?? "").includes("혈맹 레이드 취소");
+                const displayAmount = isOutLike ? -Math.abs(rawAmount) : rawAmount;
                 return (
-                  <tr key={r.id} className="border-t">
+                  <tr key={r.id} className="border-t border-white/10 text-white/85">
                     <td className="py-2">{fmt(r.at)}</td>
                     <td>
                       {(() => {
@@ -270,13 +277,13 @@ export default function Treasury({ role }: { role: Role }) {
                     <td>
                       {label}
                       {(r.bossName || r.itemName) && (
-                        <span className="ml-2 text-xs text-slate-500">
+                        <span className="ml-2 text-xs text-white/50">
                           {r.bossName ? `[${r.bossName}]` : ""}{r.itemName ? ` ${r.itemName}` : ""}
                         </span>
                       )}
                     </td>
-                    <td className={Number(r.amount ?? 0) < 0 ? "text-red-600" : "text-green-600"}>
-                      {(Number(r.amount ?? 0) < 0 ? "-" : "+")}{Math.abs(Number(r.amount ?? 0)).toLocaleString()}
+                    <td className={displayAmount < 0 ? "text-rose-300" : "text-emerald-300"}>
+                      {(displayAmount < 0 ? "-" : "+")}{Math.abs(displayAmount).toLocaleString()}
                     </td>
                     <td>{r.by}</td>
                   </tr>
@@ -289,7 +296,7 @@ export default function Treasury({ role }: { role: Role }) {
         {/* 페이지네이션 */}
         <div className="mt-3 flex items-center justify-center gap-1">
           <button
-            className="px-2 py-1 rounded border text-xs disabled:opacity-40"
+            className="px-2 py-1 rounded border border-white/10 text-xs text-white/70 disabled:opacity-40"
             disabled={page <= 1}
             onClick={() => setPage((p) => Math.max(1, p - 1))}
           >
@@ -314,7 +321,7 @@ export default function Treasury({ role }: { role: Role }) {
             ) : (
               <button
                 key={p}
-                className={`px-2 py-1 rounded border text-xs ${p === page ? "bg-slate-900 text-white border-slate-900" : ""}`}
+                className={`px-2 py-1 rounded border border-white/10 text-xs text-white/70 ${p === page ? "bg-white/15 border-white/20" : ""}`}
                 onClick={() => setPage(p)}
               >
                 {p}
@@ -323,7 +330,7 @@ export default function Treasury({ role }: { role: Role }) {
           )}
 
           <button
-            className="px-2 py-1 rounded border text-xs disabled:opacity-40"
+            className="px-2 py-1 rounded border border-white/10 text-xs text-white/70 disabled:opacity-40"
             disabled={page >= totalPages}
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
           >
@@ -343,14 +350,14 @@ export default function Treasury({ role }: { role: Role }) {
         footer={
           <div className="flex justify-end gap-2">
             <button
-              className="px-3 py-1.5 rounded-lg hover:bg-gray-100"
+              className="px-3 py-1.5 rounded-lg text-white/70 hover:bg-white/10"
               onClick={() => setOpenIn(false)}
               disabled={inSubmitting}
             >
               취소
             </button>
             <button
-              className={`px-3 py-1.5 rounded-lg text-white ${inSubmitting ? "bg-gray-300" : "bg-slate-900 hover:opacity-90"}`}
+              className={`px-3 py-1.5 rounded-lg text-white ${inSubmitting ? "bg-white/30" : "bg-white/15 hover:bg-white/20"}`}
               onClick={submitManualIn}
               disabled={inSubmitting}
             >
@@ -360,12 +367,12 @@ export default function Treasury({ role }: { role: Role }) {
         }
       >
         <form onSubmit={submitManualIn} className="space-y-3">
-          {inError && <div className="text-sm text-rose-600">{inError}</div>}
+          {inError && <div className="text-sm text-rose-300">{inError}</div>}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm mb-1">출처</label>
-              <input
-                className="w-full border rounded-lg px-2 py-2"
+                <input
+                className="w-full ui-input"
                 placeholder="예: 혈 레이드, 분배하기 애매한 템"
                 value={inSource}
                 onChange={(e) => setInSource(e.target.value)}
@@ -373,9 +380,9 @@ export default function Treasury({ role }: { role: Role }) {
             </div>
             <div>
               <label className="block text-sm mb-1">금액</label>
-              <input
+                <input
                 type="number"
-                className="w-full border rounded-lg px-2 py-2"
+                className="w-full ui-input"
                 placeholder="0"
                 value={inAmount}
                 onChange={(e) => setInAmount(e.target.value)}
@@ -398,14 +405,14 @@ export default function Treasury({ role }: { role: Role }) {
         footer={
           <div className="flex justify-end gap-2">
             <button
-              className="px-3 py-1.5 rounded-lg hover:bg-gray-100"
+              className="px-3 py-1.5 rounded-lg text-white/70 hover:bg-white/10"
               onClick={() => setOpenOut(false)}
               disabled={outSubmitting}
             >
               취소
             </button>
             <button
-              className={`px-3 py-1.5 rounded-lg text-white ${outSubmitting ? "bg-gray-300" : "bg-slate-900 hover:opacity-90"}`}
+              className={`px-3 py-1.5 rounded-lg text-white ${outSubmitting ? "bg-white/30" : "bg-white/15 hover:bg-white/20"}`}
               onClick={submitManualOut}
               disabled={outSubmitting}
             >
@@ -415,12 +422,12 @@ export default function Treasury({ role }: { role: Role }) {
         }
       >
         <form onSubmit={submitManualOut} className="space-y-3">
-          {outError && <div className="text-sm text-rose-600">{outError}</div>}
+          {outError && <div className="text-sm text-rose-300">{outError}</div>}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm mb-1">사용처 / 사유</label>
-              <input
-                className="w-full border rounded-lg px-2 py-2"
+                <input
+                className="w-full ui-input"
                 placeholder="예: 열쇠 제작, 이벤트 보상"
                 value={outReason}
                 onChange={(e) => setOutReason(e.target.value)}
@@ -428,9 +435,9 @@ export default function Treasury({ role }: { role: Role }) {
             </div>
             <div>
               <label className="block text-sm mb-1">금액</label>
-              <input
+                <input
                 type="number"
-                className="w-full border rounded-lg px-2 py-2"
+                className="w-full ui-input"
                 placeholder="0"
                 value={outAmount}
                 onChange={(e) => setOutAmount(e.target.value)}

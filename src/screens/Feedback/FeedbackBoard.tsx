@@ -4,6 +4,7 @@ import { postJSON, getJSON, patchJSON } from "@/lib/http";
 import { useAuth } from "@/contexts/AuthContext";
 import Card from "../../components/common/Card";
 import Pill from "../../components/common/Pill";
+import Modal from "../../components/common/Modal";
 
 /** ───────── 상수/유틸 ───────── */
 type FeedbackStatus = "WRITTEN" | "CONFIRMED" | "IN_PROGRESS" | "DONE" | "REJECTED";
@@ -86,9 +87,11 @@ export default function FeedbackBoard() {
   const [myOnly, setMyOnly] = useState(false);
   const [authorLoginId, setAuthorLoginId] = useState("");
   const today = fmtYMD(new Date());
-  const weekAgo = fmtYMD(new Date(Date.now() - 7 * 86400000));
-  const [fromDate, setFromDate] = useState(weekAgo);
+  const threeMonthsAgo = fmtYMD(new Date(Date.now() - 90 * 86400000));
+  const [fromDate, setFromDate] = useState(threeMonthsAgo);
   const [toDate, setToDate] = useState(today);
+  const fromRef = useRef<HTMLInputElement | null>(null);
+  const toRef = useRef<HTMLInputElement | null>(null);
 
   // 목록
   const [rows, setRows] = useState<Row[]>([]);
@@ -118,19 +121,19 @@ export default function FeedbackBoard() {
   const prevFromRef = useRef(fromDate);
   const prevToRef = useRef(toDate);
 
-  // 31일 제한: 입력 시 즉시 차단
+  // 1년 제한: 입력 시 즉시 차단
   const onChangeFrom = (val: string) => {
     if (!val) return;
-    if (daysBetweenInclusive(val, toDate) > 31) {
-      alert("검색 기간은 최대 31일까지만 가능합니다.");
+    if (daysBetweenInclusive(val, toDate) > 365) {
+      alert("검색 기간은 최대 1년까지만 가능합니다.");
       return;
     }
     setFromDate(val);
   };
   const onChangeTo = (val: string) => {
     if (!val) return;
-    if (daysBetweenInclusive(fromDate, val) > 31) {
-      alert("검색 기간은 최대 31일까지만 가능합니다.");
+    if (daysBetweenInclusive(fromDate, val) > 365) {
+      alert("검색 기간은 최대 1년까지만 가능합니다.");
       return;
     }
     setToDate(val);
@@ -160,8 +163,8 @@ export default function FeedbackBoard() {
       prevToRef.current = toDate;
     } catch (e: any) {
       const msg = e?.message || "";
-      if (msg.includes("31일")) {
-        alert("검색 기간은 최대 31일까지만 가능합니다.");
+      if (msg.includes("365") || msg.includes("1년") || msg.includes("최대")) {
+        alert("검색 기간은 최대 1년까지만 가능합니다.");
         // 날짜 되돌림
         setFromDate(prevFromRef.current);
         setToDate(prevToRef.current);
@@ -304,7 +307,7 @@ export default function FeedbackBoard() {
         {/* 검색 바 */}
         <div className="flex flex-wrap items-center gap-2 mb-3">
           <input
-            className="border rounded-lg px-2 py-2 text-sm w-[220px]"
+            className="ui-input w-[220px]"
             placeholder="제목 검색"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
@@ -319,7 +322,7 @@ export default function FeedbackBoard() {
             내가 쓴 글만
           </label>
           <input
-            className="border rounded-lg px-2 py-2 text-sm w-[180px]"
+            className="ui-input w-[180px]"
             placeholder="작성자(ID) 검색"
             value={authorLoginId}
             disabled={myOnly}
@@ -327,31 +330,59 @@ export default function FeedbackBoard() {
             onKeyDown={(e) => e.key === "Enter" && loadList(1)}
           />
           <div className="ml-auto flex items-center gap-2">
-            <input
-              type="date"
-              className="border rounded-lg px-2 py-2 text-sm"
-              value={fromDate}
-              min={addDaysStr(toDate, -30)}
-              max={toDate}
-              onChange={(e) => onChangeFrom(e.currentTarget.value)}
-            />
+            <div className="ui-date-wrap">
+              <input
+                ref={fromRef}
+                type="date"
+                className="ui-date"
+                value={fromDate}
+                min={addDaysStr(toDate, -365)}
+                max={toDate}
+                onChange={(e) => onChangeFrom(e.currentTarget.value)}
+              />
+              <button
+                type="button"
+                className="ui-date-btn"
+                onClick={() => fromRef.current?.showPicker?.()}
+                aria-label="날짜 선택"
+                title="날짜 선택"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path strokeWidth="2" d="M8 2v3M16 2v3M3 8h18M5 12h14M5 16h10" />
+                </svg>
+              </button>
+            </div>
             <span>~</span>
-            <input
-              type="date"
-              className="border rounded-lg px-2 py-2 text-sm"
-              value={toDate}
-              min={fromDate}
-              max={addDaysStr(fromDate, 30)}
-              onChange={(e) => onChangeTo(e.currentTarget.value)}
-            />
+            <div className="ui-date-wrap">
+              <input
+                ref={toRef}
+                type="date"
+                className="ui-date"
+                value={toDate}
+                min={fromDate}
+                max={addDaysStr(fromDate, 365)}
+                onChange={(e) => onChangeTo(e.currentTarget.value)}
+              />
+              <button
+                type="button"
+                className="ui-date-btn"
+                onClick={() => toRef.current?.showPicker?.()}
+                aria-label="날짜 선택"
+                title="날짜 선택"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path strokeWidth="2" d="M8 2v3M16 2v3M3 8h18M5 12h14M5 16h10" />
+                </svg>
+              </button>
+            </div>
             <button
-              className="px-3 py-2 rounded-lg border hover:bg-slate-50 text-sm"
+              className="px-3 py-2 rounded-lg border border-white/10 text-white/80 hover:bg-white/10 text-sm"
               onClick={() => loadList(1)}
             >
               검색
             </button>
             <button
-              className="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm"
+              className="px-3 py-2 rounded-lg bg-white/15 text-white text-sm hover:bg-white/20"
               onClick={() => {
                 setEditMode("create");
                 setEditId(null);
@@ -368,8 +399,8 @@ export default function FeedbackBoard() {
         {/* 목록 */}
         <div className="flex-1 min-h-0 overflow-y-auto">
           <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-white z-10">
-              <tr className="text-left text-xs text-gray-500">
+            <thead className="sticky top-0 bg-slate-900/80 backdrop-blur z-10">
+              <tr className="text-left text-xs text-white/60">
                 <th className="py-2">제목</th>
                 <th>작성자</th>
                 <th>처리여부</th>
@@ -378,24 +409,24 @@ export default function FeedbackBoard() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={4} className="py-6 text-center text-slate-500">불러오는 중…</td></tr>
+                <tr><td colSpan={4} className="py-6 text-center text-white/60">불러오는 중…</td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={4} className="py-6 text-center text-slate-400 italic">등록된 건의가 없습니다.</td></tr>
+                <tr><td colSpan={4} className="py-6 text-center text-white/50 italic">등록된 건의가 없습니다.</td></tr>
               ) : (
                 rows.map((r) => (
                   <tr
                     key={r.id}
-                    className="border-t hover:bg-slate-50 cursor-pointer"
+                    className="border-t border-white/10 hover:bg-white/5 cursor-pointer"
                     onClick={() => openDetail(r.id)}
                   >
                     <td className="py-2">
-                      {r.deleted ? <span className="text-slate-400">삭제된 게시글입니다.</span> : r.title}
+                      {r.deleted ? <span className="text-white/40">삭제된 게시글입니다.</span> : <span className="text-white/90">{r.title}</span>}
                     </td>
-                    <td>{r.authorLoginId}</td>
+                    <td className="text-white/80">{r.authorLoginId}</td>
                     <td>
                       <Pill tone={STATUS_TONE[r.status] as any}>{STATUS_LABEL[r.status]}</Pill>
                     </td>
-                    <td>{new Date(r.createdAt).toLocaleString()}</td>
+                    <td className="text-white/70">{new Date(r.createdAt).toLocaleString()}</td>
                   </tr>
                 ))
               )}
@@ -462,161 +493,158 @@ export default function FeedbackBoard() {
 
       {/* ───────── 상세/댓글 모달 ───────── */}
       {detailOpen && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setDetailOpen(false)} />
-          <div className="relative z-[1001] w-[96vw] max-w-[880px] rounded-2xl bg-white shadow-xl border p-4">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-base font-semibold">상세 보기</h3>
-              <button className="px-2 py-1 rounded hover:bg-slate-100" onClick={() => setDetailOpen(false)}>×</button>
-            </div>
-
-            {detailLoading || !detail ? (
-              <div className="p-6 text-slate-500">불러오는 중…</div>
-            ) : (
-              <>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1">
-                    <div className="text-xl font-semibold">
-                      {detail.deleted ? <span className="text-slate-400">삭제된 게시글입니다.</span> : detail.title}
-                    </div>
-                    <div className="mt-1 text-sm text-slate-600">
-                      작성자: <b>{detail.authorLoginId}</b> ·{" "}
-                      상태: <b>{STATUS_LABEL[detail.status]}</b> ·{" "}
-                      작성일: {new Date(detail.createdAt).toLocaleString()}
-                    </div>
+        <Modal
+          open={detailOpen}
+          onClose={() => setDetailOpen(false)}
+          title="상세 보기"
+          maxWidth="max-w-[880px]"
+        >
+          {detailLoading || !detail ? (
+            <div className="p-6 text-white/60">불러오는 중…</div>
+          ) : (
+            <>
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1">
+                  <div className="text-xl font-semibold">
+                    {detail.deleted ? <span className="text-white/40">삭제된 게시글입니다.</span> : detail.title}
                   </div>
-
-                  {/* 상태변경 (superadmin) */}
-                  {role === "SUPERADMIN" && !detail.deleted && (
-                    <div className="flex flex-wrap gap-2 justify-end">
-                      <button
-                        className="px-2 py-1 rounded border hover:bg-slate-50 text-xs"
-                        onClick={() => changeStatus("CONFIRM")}
-                        disabled={detail.status !== "WRITTEN"}
-                      >확인완료</button>
-                      <button
-                        className="px-2 py-1 rounded border hover:bg-slate-50 text-xs"
-                        onClick={() => changeStatus("START")}
-                        disabled={!(detail.status === "WRITTEN" || detail.status === "CONFIRMED")}
-                      >처리중</button>
-                      <button
-                        className="px-2 py-1 rounded border hover:bg-slate-50 text-xs"
-                        onClick={() => changeStatus("DONE")}
-                        disabled={detail.status !== "IN_PROGRESS"}
-                      >처리완료</button>
-                      <button
-                        className="px-2 py-1 rounded border hover:bg-slate-50 text-xs"
-                        onClick={() => changeStatus("REJECT")}
-                        disabled={!(detail.status === "WRITTEN" || detail.status === "CONFIRMED")}
-                      >반려</button>
-                    </div>
-                  )}
-                </div>
-
-                {/* 본문 + 액션 */}
-                <div className="mt-3 rounded-xl border bg-white p-3">
-                  <div className="whitespace-pre-wrap text-slate-800 text-sm min-h-[64px]">
-                    {detail.deleted ? "" : detail.content}
-                  </div>
-                  <div className="mt-3 flex gap-2 justify-end">
-                    {canEditOrDelete.edit && (
-                      <button
-                        className="px-3 py-1.5 rounded border hover:bg-slate-50 text-sm"
-                        onClick={() => {
-                          setEditMode("edit");
-                          setEditId(detail.id);
-                          setEditTitle(detail.title);
-                          setEditContent(detail.content);
-                          setEditOpen(true);
-                        }}
-                      >수정</button>
-                    )}
-                    {canEditOrDelete.del && (
-                      <button
-                        className="px-3 py-1.5 rounded bg-red-600 text-white text-sm"
-                        onClick={() => softDelete(detail.id)}
-                      >삭제</button>
-                    )}
+                  <div className="mt-1 text-sm text-white/60">
+                    작성자: <b>{detail.authorLoginId}</b> ·{" "}
+                    상태: <b>{STATUS_LABEL[detail.status]}</b> ·{" "}
+                    작성일: {new Date(detail.createdAt).toLocaleString()}
                   </div>
                 </div>
 
-                {/* 댓글 */}
-                <div className="mt-5">
-                  <div className="mb-2 text-sm font-semibold">댓글</div>
-                  {detail.comments.length === 0 ? (
-                    <div className="text-sm text-slate-500 border rounded p-2">댓글이 없습니다.</div>
-                  ) : (
-                    <ul className="space-y-2">
-                      {detail.comments.map((c) => {
-                        const mine = c.authorLoginId === loginId;
-                        return (
-                          <li key={c.id} className="border rounded p-2">
-                            <div className="flex items-center justify-between">
-                              <div className="text-sm">
-                                <b>{c.authorLoginId}</b>{" "}
-                                <span className="text-xs text-slate-500">{new Date(c.createdAt).toLocaleString()}</span>
-                              </div>
-                              <div className="flex gap-2">
-                                {/* 수정/삭제: 본인 & 처리전, 또는 superadmin */}
-                                {role === "SUPERADMIN" || mine ? (
-                                  <>
-                                    <button
-                                      className="px-2 py-1 rounded border hover:bg-slate-50 text-xs"
-                                      onClick={() => {
-                                        setEditingCommentId(c.id);
-                                        setCommentText(c.deleted ? "" : c.content);
-                                      }}
-                                    >수정</button>
-                                    <button
-                                      className="px-2 py-1 rounded bg-red-600 text-white text-xs"
-                                      onClick={() => deleteComment(c.id)}
-                                    >삭제</button>
-                                  </>
-                                ) : null}
-                              </div>
-                            </div>
-                            <div className="mt-1 text-sm whitespace-pre-wrap">
-                              {c.deleted ? <span className="text-slate-400">삭제된 댓글입니다.</span> : c.content}
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
+                {/* 상태변경 (superadmin) */}
+                {role === "SUPERADMIN" && !detail.deleted && (
+                  <div className="flex flex-wrap gap-2 justify-end">
+                    <button
+                      className="px-2 py-1 rounded border border-white/10 hover:bg-white/10 text-xs"
+                      onClick={() => changeStatus("CONFIRM")}
+                      disabled={detail.status !== "WRITTEN"}
+                    >확인완료</button>
+                    <button
+                      className="px-2 py-1 rounded border border-white/10 hover:bg-white/10 text-xs"
+                      onClick={() => changeStatus("START")}
+                      disabled={!(detail.status === "WRITTEN" || detail.status === "CONFIRMED")}
+                    >처리중</button>
+                    <button
+                      className="px-2 py-1 rounded border border-white/10 hover:bg-white/10 text-xs"
+                      onClick={() => changeStatus("DONE")}
+                      disabled={detail.status !== "IN_PROGRESS"}
+                    >처리완료</button>
+                    <button
+                      className="px-2 py-1 rounded border border-white/10 hover:bg-white/10 text-xs"
+                      onClick={() => changeStatus("REJECT")}
+                      disabled={!(detail.status === "WRITTEN" || detail.status === "CONFIRMED")}
+                    >반려</button>
+                  </div>
+                )}
+              </div>
 
-                  {/* 댓글 작성/수정 입력 */}
-                  {!detail.deleted && (
-                    <div className="mt-3 flex items-start gap-2">
-                      <textarea
-                        className="flex-1 border rounded-lg px-2 py-2 h-[72px] text-sm"
-                        placeholder={editingCommentId ? "댓글 수정…" : "댓글을 입력하세요…"}
-                        value={commentText}
-                        onChange={(e) => setCommentText(e.target.value)}
-                      />
-                      {editingCommentId ? (
-                        <div className="flex flex-col gap-2">
-                          <button
-                            className="px-3 py-2 rounded bg-slate-900 text-white text-sm"
-                            onClick={updateComment}
-                          >수정</button>
-                          <button
-                            className="px-3 py-2 rounded border text-sm"
-                            onClick={() => { setEditingCommentId(null); setCommentText(""); }}
-                          >취소</button>
-                        </div>
-                      ) : (
+              {/* 본문 + 액션 */}
+              <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3">
+                <div className="whitespace-pre-wrap text-white/85 text-sm min-h-[64px]">
+                  {detail.deleted ? "" : detail.content}
+                </div>
+                <div className="mt-3 flex gap-2 justify-end">
+                  {canEditOrDelete.edit && (
+                    <button
+                      className="px-3 py-1.5 rounded border border-white/10 hover:bg-white/10 text-sm"
+                      onClick={() => {
+                        setEditMode("edit");
+                        setEditId(detail.id);
+                        setEditTitle(detail.title);
+                        setEditContent(detail.content);
+                        setEditOpen(true);
+                      }}
+                    >수정</button>
+                  )}
+                  {canEditOrDelete.del && (
+                    <button
+                      className="px-3 py-1.5 rounded bg-rose-500/80 text-white text-sm hover:bg-rose-500"
+                      onClick={() => softDelete(detail.id)}
+                    >삭제</button>
+                  )}
+                </div>
+              </div>
+
+              {/* 댓글 */}
+              <div className="mt-5">
+                <div className="mb-2 text-sm font-semibold">댓글</div>
+                {detail.comments.length === 0 ? (
+                  <div className="text-sm text-white/60 border border-white/10 rounded p-2">댓글이 없습니다.</div>
+                ) : (
+                  <ul className="space-y-2">
+                    {detail.comments.map((c) => {
+                      const mine = c.authorLoginId === loginId;
+                      return (
+                        <li key={c.id} className="border border-white/10 rounded p-2 bg-white/5">
+                          <div className="flex items-center justify-between">
+                            <div className="text-sm">
+                              <b>{c.authorLoginId}</b>{" "}
+                              <span className="text-xs text-white/50">{new Date(c.createdAt).toLocaleString()}</span>
+                            </div>
+                            <div className="flex gap-2">
+                              {/* 수정/삭제: 본인 & 처리전, 또는 superadmin */}
+                              {role === "SUPERADMIN" || mine ? (
+                                <>
+                                  <button
+                                    className="px-2 py-1 rounded border border-white/10 hover:bg-white/10 text-xs"
+                                    onClick={() => {
+                                      setEditingCommentId(c.id);
+                                      setCommentText(c.deleted ? "" : c.content);
+                                    }}
+                                  >수정</button>
+                                  <button
+                                    className="px-2 py-1 rounded bg-rose-500/80 text-white text-xs hover:bg-rose-500"
+                                    onClick={() => deleteComment(c.id)}
+                                  >삭제</button>
+                                </>
+                              ) : null}
+                            </div>
+                          </div>
+                          <div className="mt-1 text-sm whitespace-pre-wrap text-white/85">
+                            {c.deleted ? <span className="text-white/40">삭제된 댓글입니다.</span> : c.content}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+
+                {/* 댓글 작성/수정 입력 */}
+                {!detail.deleted && (
+                  <div className="mt-3 flex items-start gap-2">
+                    <textarea
+                      className="flex-1 ui-input h-[72px] text-sm"
+                      placeholder={editingCommentId ? "댓글 수정…" : "댓글을 입력하세요…"}
+                      value={commentText}
+                      onChange={(e) => setCommentText(e.target.value)}
+                    />
+                    {editingCommentId ? (
+                      <div className="flex flex-col gap-2">
                         <button
-                          className="px-3 py-2 rounded bg-slate-900 text-white text-sm"
-                          onClick={addComment}
-                        >등록</button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+                          className="px-3 py-2 rounded bg-white/15 text-white text-sm hover:bg-white/20"
+                          onClick={updateComment}
+                        >수정</button>
+                        <button
+                          className="px-3 py-2 rounded border border-white/10 text-sm hover:bg-white/10"
+                          onClick={() => { setEditingCommentId(null); setCommentText(""); }}
+                        >취소</button>
+                      </div>
+                    ) : (
+                      <button
+                        className="px-3 py-2 rounded bg-white/15 text-white text-sm hover:bg-white/20"
+                        onClick={addComment}
+                      >등록</button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </Modal>
       )}
     </div>
   );

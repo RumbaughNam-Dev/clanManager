@@ -139,10 +139,13 @@ export default function MobileBossDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-white">
+    <div
+      className="min-h-screen bg-slate-950 text-white"
+      style={{ fontFamily: '"Space Grotesk", "Noto Sans KR", "Apple SD Gothic Neo", sans-serif' }}
+    >
 
       {/* 헤더 */}
-      <header className="sticky top-0 z-40 bg-white/90 backdrop-blur border-b px-3 py-2 flex items-center justify-between">
+      <header className="sticky top-0 z-40 bg-slate-950/85 backdrop-blur border-b border-white/10 px-4 py-3 flex items-center justify-between">
         <button
           type="button"
           aria-label="메뉴"
@@ -150,25 +153,25 @@ export default function MobileBossDashboard() {
           onClick={() => alert("메뉴는 추후 구현")}
         >
           {/* 햄버거 */}
-          <div className="w-5 h-[2px] bg-slate-800 mb-1" />
-          <div className="w-5 h-[2px] bg-slate-800 mb-1" />
-          <div className="w-5 h-[2px] bg-slate-800" />
+          <div className="w-5 h-[2px] bg-white/80 mb-1" />
+          <div className="w-5 h-[2px] bg-white/80 mb-1" />
+          <div className="w-5 h-[2px] bg-white/80" />
         </button>
-        <div className="text-sm font-semibold">보스 대시보드 (모바일)</div>
+        <div className="text-[1em] font-semibold">보스 대시보드</div>
         <div className="w-6" />
       </header>
 
       {/* 상단 고정 컨트롤 바 */}
-      <div className="sticky top-[40px] z-30 bg-white/95 backdrop-blur border-b px-3 py-2 space-y-2">
+      <div className="sticky top-[52px] z-30 bg-slate-950/90 backdrop-blur border-b border-white/10 px-4 py-3 space-y-3 text-[1.1em]">
         <input
-          className="w-full border rounded-lg px-3 py-2 text-sm"
+          className="w-full border border-white/10 rounded-xl px-4 py-3 bg-white/5 text-white/90 placeholder:text-white/50"
           placeholder="보스/위치 검색"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
         <div className="flex gap-2">
           <input
-            className="flex-1 border rounded-lg px-3 py-2 text-sm"
+            className="flex-1 border border-white/10 rounded-xl px-4 py-3 bg-white/5 text-white/90 placeholder:text-white/50"
             placeholder="간편 컷: 2200 서드"
             value={quickText}
             onChange={(e) => setQuickText(e.target.value)}
@@ -180,7 +183,7 @@ export default function MobileBossDashboard() {
             }}
           />
           <button
-            className={`px-3 py-2 rounded-lg text-white text-sm ${quickSaving ? "bg-gray-300" : "bg-slate-900"}`}
+            className={`px-4 py-3 rounded-xl text-white font-semibold ${quickSaving ? "bg-white/30" : "bg-white/15 hover:bg-white/20"}`}
             onClick={quickSave}
             disabled={quickSaving}
           >
@@ -190,27 +193,27 @@ export default function MobileBossDashboard() {
       </div>
 
       {/* 리스트 */}
-      <main className="px-3 pb-6">
+      <main className="px-4 pb-8 text-[1.1em]">
         {/* 진행중 */}
-        <h2 className="mt-3 mb-2 text-sm font-semibold text-slate-700">진행중</h2>
+        <h2 className="mt-4 mb-3 text-[0.95em] font-semibold text-white/70">진행중</h2>
         {loading ? (
-          <div className="text-sm text-slate-500">불러오는 중…</div>
+          <div className="text-[0.9em] text-white/60">불러오는 중…</div>
         ) : trackedFiltered.length === 0 ? (
-          <div className="text-sm text-slate-400">진행중 보스 없음</div>
+          <div className="text-[0.9em] text-white/50">진행중 보스 없음</div>
         ) : (
-          <ul className="space-y-2">
+          <ul className="space-y-3">
             {trackedFiltered.map((b) => (
               <li
                 key={b.id}
-                className="rounded-xl border p-3 active:opacity-90"
+                className="rounded-2xl border border-white/10 bg-white/5 p-4 active:opacity-90"
                 onClick={() => {
                   setSelectedBoss(b);
                   setCutOpen(true);
                 }}
               >
-                <div className="text-[15px] font-semibold">{b.name}</div>
-                <div className="text-xs text-slate-500 mt-0.5">{b.location ?? "-"}</div>
-                <div className="text-xs text-slate-500 mt-1">
+                <div className="text-[1.1em] font-semibold">{b.name}</div>
+                <div className="text-[0.85em] text-white/60 mt-1">{b.location ?? "-"}</div>
+                <div className="text-[0.85em] text-white/60 mt-2">
                   다음 젠: {b.nextSpawnAt ? new Date(b.nextSpawnAt).toLocaleString("ko-KR",{hour12:false}) : "-"}
                 </div>
               </li>
@@ -219,25 +222,25 @@ export default function MobileBossDashboard() {
         )}
 
         {/* 잊어버린 */}
-        <h2 className="mt-5 mb-2 text-sm font-semibold text-slate-700">잊어버린</h2>
+        <h2 className="mt-6 mb-3 text-[0.95em] font-semibold text-white/70">잊어버린</h2>
         {loading ? (
-          <div className="text-sm text-slate-500">불러오는 중…</div>
+          <div className="text-[0.9em] text-white/60">불러오는 중…</div>
         ) : forgottenFiltered.length === 0 ? (
-          <div className="text-sm text-slate-400">잊어버린 보스 없음</div>
+          <div className="text-[0.9em] text-white/50">잊어버린 보스 없음</div>
         ) : (
-          <ul className="space-y-2">
+          <ul className="space-y-3">
             {forgottenFiltered.map((b) => (
               <li
                 key={b.id}
-                className="rounded-xl border p-3 active:opacity-90"
+                className="rounded-2xl border border-white/10 bg-white/5 p-4 active:opacity-90"
                 onClick={() => {
                   setSelectedBoss(b);
                   setCutOpen(true);
                 }}
               >
-                <div className="text-[15px] font-semibold">{b.name}</div>
-                <div className="text-xs text-slate-500 mt-0.5">{b.location ?? "-"}</div>
-                <div className="text-xs text-slate-500 mt-1">
+                <div className="text-[1.1em] font-semibold">{b.name}</div>
+                <div className="text-[0.85em] text-white/60 mt-1">{b.location ?? "-"}</div>
+                <div className="text-[0.85em] text-white/60 mt-2">
                   마지막 컷: {b.lastCutAt ? new Date(b.lastCutAt).toLocaleString("ko-KR",{hour12:false}) : "-"}
                 </div>
               </li>

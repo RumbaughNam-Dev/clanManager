@@ -1,0 +1,78 @@
+.ui-input {
+  @apply border border-white/10 bg-white/5 text-white placeholder:text-white/50 rounded-lg px-2 py-2 text-sm;
+}
+
+.ui-select {
+  @apply border border-white/10 bg-white/5 text-white/80 rounded-lg px-2 py-2 text-sm;
+}
+
+.ui-date {
+  @apply border border-white/10 bg-white/5 text-white/80 rounded-lg px-2 py-2 text-sm;
+  color-scheme: dark;
+  padding-right: 3.5rem;
+  -webkit-appearance: none;
+  appearance: none;
+  min-width: 10.75rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.ui-date::-moz-focus-inner {
+  border: 0;
+}
+
+input[type="date"].ui-date::-ms-clear,
+input[type="date"].ui-date::-ms-reveal {
+  display: none;
+}
+
+input[type="date"].ui-date {
+  background-image: none !important;
+}
+.ui-date::-webkit-calendar-picker-indicator {
+  opacity: 0;
+  display: none;
+}
+
+.ui-date::-webkit-inner-spin-button,
+.ui-date::-webkit-clear-button {
+  display: none;
+}
+
+.ui-date-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.ui-date-btn {
+  position: absolute;
+  right: 0.6rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  opacity: 0.8;
+}
+
+.ui-date-btn:hover {
+  opacity: 1;
+}
+.ui-global-input,
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+select,
+textarea {
+  @apply border border-white/10 bg-white/5 text-white/80 placeholder:text-white/50 rounded-lg px-2 py-2 text-sm;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  @apply outline-none ring-2 ring-emerald-300/20 border-emerald-300;
+}
+
+select option {
+  color: #0f172a;
+}

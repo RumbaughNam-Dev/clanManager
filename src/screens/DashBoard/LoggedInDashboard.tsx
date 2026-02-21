@@ -204,14 +204,14 @@ function formatDateLocal(d: Date): string {
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
-// 최근 N일(from~to) 기본 범위 만들기 (기본 7일)
-function getDateRangeLastNDays(n = 7) {
+// 최근 N일(from~to) 기본 범위 만들기 (기본 90일)
+function getDateRangeLastNDays(n = 90) {
   const today = new Date();
   const from = new Date(today.getTime() - n * 24 * 60 * 60 * 1000);
   return { fromDate: formatDateLocal(from), toDate: formatDateLocal(today) };
 }
 
-// 두 날짜(YYYY-MM-DD)의 '일수 차이(포함형)' — from~to가 31일 이하면 OK
+// 두 날짜(YYYY-MM-DD)의 '일수 차이(포함형)' — from~to가 365일 이하면 OK
 function daysBetweenInclusive(a: string, b: string): number {
   if (!a || !b) return Infinity;
   const aDt = new Date(a + "T00:00:00");
@@ -521,12 +521,12 @@ export default function LoggedInDashboard({
 
       setRecentList(items);
       } catch (e: any) {
-        // ⛑️ 31일 초과 백엔드 에러 메시지 방어
-        const msg = e?.message || e?.toString?.() || "";
-        if (msg.includes("31일") || msg.includes("최대 31일")) {
-          alert("검색 기간은 최대 31일까지만 가능합니다.");
-          // 상태는 onChange에서 이미 막히므로 별도 되돌림 불필요
-        }
+      // ⛑️ 1년 초과 백엔드 에러 메시지 방어
+      const msg = e?.message || e?.toString?.() || "";
+      if (msg.includes("365") || msg.includes("1년") || msg.includes("최대")) {
+        alert("검색 기간은 최대 1년까지만 가능합니다.");
+        // 상태는 onChange에서 이미 막히므로 별도 되돌림 불필요
+      }
         setRecentList([]);
       } finally {
         setRecentLoading(false);
@@ -962,8 +962,8 @@ export default function LoggedInDashboard({
             ref={btnRef}
             onMouseEnter={handleButtonMouseEnter}
             onMouseLeave={handleButtonMouseLeave}
-            className="pointer-events-auto w-full text-center rounded-md border text-[10px] leading-none px-2 py-[3px]
-                      bg-white/80 text-slate-600 shadow-sm hover:bg-white relative z-[70]"
+            className="pointer-events-auto w-full text-center rounded-md border border-white/10 text-[10px] leading-none px-2 py-[3px]
+                      bg-white/5 text-white/70 shadow-sm hover:bg-white/10 relative z-[70]"
           >
             보스 젠 위치
           </button>
@@ -982,8 +982,8 @@ export default function LoggedInDashboard({
     const overdueKeep = remain < 0 && remain >= -OVERDUE_GRACE_MS;       // 지남~10분 유예
     const shouldBlink = !silenced && (isSoon || overdueKeep);
     const blinkCls = shouldBlink
-      ? "animate-blink border-2 border-rose-500 bg-rose-50"
-      : "border border-slate-200 bg-white";
+      ? "animate-blink border-2 border-rose-400 bg-rose-500/15"
+      : "border border-white/10 bg-white/5";
 
     const canDaze = !!b.isRandom;
     const dazeCount = Number((b as any)?.dazeCount ?? 0);
@@ -1009,8 +1009,8 @@ export default function LoggedInDashboard({
           </div>
         )}
 
-        <div className="font-medium text-[13px] whitespace-nowrap overflow-visible">{b.name}</div>
-        <div className="text-xs text-slate-600 whitespace-nowrap">
+        <div className="font-medium text-[13px] whitespace-nowrap overflow-visible text-white">{b.name}</div>
+        <div className="text-xs text-white/60 whitespace-nowrap">
           {hms == null ? "미입력" : (<>{hms}<span className="ml-1">{afterLabel}</span></>)}
         </div>
 
@@ -1020,14 +1020,14 @@ export default function LoggedInDashboard({
               <button
                 type="button"
                 onClick={() => instantCut(b)}
-                className="w-full text-[10px] leading-none px-2 py-[3px] rounded-md text-white bg-slate-900 hover:opacity-90"
+                className="w-full text-[10px] leading-none px-2 py-[3px] rounded-md text-white bg-white/15 hover:bg-white/20"
               >
                 컷
               </button>
               <button
                 type="button"
                 onClick={() => addDaze(b)}
-                className="w-full text-[10px] leading-none px-2 py-[3px] rounded-md border text-slate-700 hover:bg-slate-50"
+                className="w-full text-[10px] leading-none px-2 py-[3px] rounded-md border border-white/10 text-white/70 hover:bg-white/10"
               >
                 멍
               </button>
@@ -1036,7 +1036,7 @@ export default function LoggedInDashboard({
             <button
               type="button"
               onClick={() => instantCut(b)}
-              className="col-span-2 w-full text-[10px] leading-none px-2 py-[3px] rounded-md text-white bg-slate-900 hover:opacity-90"
+              className="col-span-2 w-full text-[10px] leading-none px-2 py-[3px] rounded-md text-white bg-white/15 hover:bg-white/20"
             >
               컷
             </button>
@@ -1319,23 +1319,23 @@ export default function LoggedInDashboard({
       <div className="flex-[8.5] min-h-0 grid grid-cols-[4fr_1fr] gap-4 overflow-hidden">
         {/* 좌측: 비고정 보스 전체 */}
         <section className="overflow-y-auto p-2">
-          <h2 className="text-base font-semibold mb-2 text-slate-700">
+          <h2 className="text-base font-semibold mb-2 text-white/80">
             보스타임 관리
             {query && (
-              <span className="ml-2 text-xs text-slate-400">
+              <span className="ml-2 text-xs text-white/50">
                 ({normalsAll.length}개)
               </span>
             )}
           </h2>
 
       {/* ── 상단 컨트롤 바: 검색 / 음성 on/off / 간편컷 / 보스 초기화 / 디코 공유·가져오기 ── */}
-      <div className="sticky top-0 z-[60] bg-white/85 backdrop-blur px-2 py-2 rounded-md border">
+      <div className="sticky top-0 z-[60] bg-slate-900/70 backdrop-blur px-2 py-2 rounded-md border border-white/10 text-white">
         <div className="flex items-center gap-3 flex-wrap">
           {/* 검색 */}
           <div className="relative w-auto min-w-[160px] max-w-[220px]">
             <input
               ref={searchInputRef}
-              className="w-full border rounded-xl px-2 py-1.5 pr-6 text-sm"
+              className="w-full border border-white/10 bg-white/5 rounded-xl px-2 py-1.5 pr-6 text-sm text-white placeholder:text-white/50"
               placeholder="보스 이름/위치 검색"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -1343,7 +1343,7 @@ export default function LoggedInDashboard({
             {query && (
               <button
                 type="button"
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-white/50 hover:text-white"
                 onClick={() => setQuery("")}
                 aria-label="검색어 지우기"
                 title="지우기"
@@ -1354,7 +1354,7 @@ export default function LoggedInDashboard({
           </div>
 
           {/* 칸막이 */}
-          <div className="h-6 border-l mx-1.5" />
+          <div className="h-6 border-l border-white/10 mx-1.5" />
 
           {/* 음성 알림 on/off */}
           <label className="flex items-center gap-2 text-sm select-none">
@@ -1377,12 +1377,12 @@ export default function LoggedInDashboard({
             aria-label="음성 알림 볼륨"
             title="볼륨"
           />
-          <span className="text-xs text-slate-500 w-[36px]">
+          <span className="text-xs text-white/50 w-[36px]">
             {Math.round(voiceVolume * 100)}%
           </span>
           <button
             type="button"
-            className="flex items-center gap-2 text-sm border rounded-md px-2 py-1"
+            className="flex items-center gap-2 text-sm border border-white/10 rounded-md px-2 py-1 text-white/80 hover:bg-white/5"
             onClick={() => {
               if (voiceBoosted) {
                 setVoiceBoosted(false);
@@ -1394,17 +1394,17 @@ export default function LoggedInDashboard({
               if (ok) setVoiceBoosted(true);
             }}
           >
-            <input type="checkbox" checked={voiceBoosted} readOnly />
+            <input type="checkbox" checked={voiceBoosted} readOnly className="accent-emerald-400" />
             3배 증폭
           </button>
 
           {/* 칸막이 */}
-          <div className="h-6 border-l mx-1.5" />
+          <div className="h-6 border-l border-white/10 mx-1.5" />
 
           {/* 간편 컷 */}
           <div className="flex items-center gap-2">
             <input
-              className="border rounded-xl px-4 py-2 w-[220px]"
+              className="border border-white/10 bg-white/5 rounded-xl px-4 py-2 w-[220px] text-white placeholder:text-white/50"
               placeholder="예: 2200 서드"
               value={quickCutText}
               onChange={(e) => setQuickCutText(e.target.value)}
@@ -1415,12 +1415,12 @@ export default function LoggedInDashboard({
           </div>
 
           {/* 칸막이 */}
-          <div className="h-6 border-l mx-1.5" />
+          <div className="h-6 border-l border-white/10 mx-1.5" />
 
           {/* 보스 초기화 (모달 열기) */}
           <button
             type="button"
-            className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-slate-900 text-white text-sm hover:opacity-90"
+            className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-white/10 text-white text-sm hover:bg-white/15"
             onClick={() => setInitOpen(true)}
             title="모든 보스를 지정 시각(+5분)으로 일괄 컷"
           >
@@ -1434,7 +1434,7 @@ export default function LoggedInDashboard({
           {/* 디코 보스봇 시간 공유 (모달 열기) */}
           <button
             type="button"
-            className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-slate-900 text-white text-sm hover:opacity-90"
+            className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-white/10 text-white text-sm hover:bg-white/15"
             onClick={openShareModal}
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1447,7 +1447,7 @@ export default function LoggedInDashboard({
           {/* 디코 보스봇 시간 가져오기 (모달 열기) */}
           <button
             type="button"
-            className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-slate-900 text-white text-sm hover:opacity-90"
+            className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-white/10 text-white text-sm hover:bg-white/15"
             onClick={() => setImportOpen(true)}
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1460,11 +1460,11 @@ export default function LoggedInDashboard({
       </div>
 
           {loading ? (
-            <div className="h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-500">
+            <div className="h-12 rounded-xl border border-white/10 bg-white/5 flex items-center px-3 text-sm text-white/60">
               불러오는 중…
             </div>
           ) : normalsAll.length === 0 ? (
-            <div className="mt-3 h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-400 italic">
+            <div className="mt-3 h-12 rounded-xl border border-white/10 bg-white/5 flex items-center px-3 text-sm text-white/50 italic">
               {query ? "검색 결과가 없습니다." : "표시할 보스가 없습니다."}
             </div>
           ) : (
@@ -1481,16 +1481,16 @@ export default function LoggedInDashboard({
         </section>
 
         {/* 우측: 잡은 보스 이력 */}
-        <aside className="overflow-y-auto overflow-x-hidden border-l pl-3 pr-4 [scrollbar-gutter:stable_both-edges]">
-          <h2 className="text-base font-semibold mb-2 text-slate-700">잡은 보스 이력</h2>
+        <aside className="overflow-y-auto overflow-x-hidden border-l border-white/10 pl-3 pr-4 [scrollbar-gutter:stable_both-edges]">
+          <h2 className="text-base font-semibold mb-2 text-white/80">잡은 보스 이력</h2>
 
           {/* 기간 표시(텍스트) + 달력 버튼: 한 줄 */}
-          <div className="mb-2 sticky top-0 z-10 bg-white/90 backdrop-blur px-1 py-1 rounded">
-            <div className="flex items-center gap-2 text-[11px] text-slate-600">
-              <span className="px-1 py-[2px] rounded bg-slate-50 border text-slate-700">{recentFromDate}</span>
+          <div className="mb-2 sticky top-0 z-10 bg-slate-900/70 backdrop-blur px-1 py-1 rounded border border-white/10">
+            <div className="flex items-center gap-2 text-[11px] text-white/70">
+              <span className="px-1 py-[2px] rounded bg-white/10 border border-white/10 text-white/80">{recentFromDate}</span>
               <button
                 type="button"
-                className="ml-1 inline-flex items-center gap-1 px-2 py-[4px] rounded border hover:bg-slate-50"
+                className="ml-1 inline-flex items-center gap-1 px-2 py-[4px] rounded border border-white/10 text-white/80 hover:bg-white/10"
                 title="From 날짜 변경"
                 onClick={() => {
                   const el = recentFromRef.current;
@@ -1498,18 +1498,18 @@ export default function LoggedInDashboard({
                   (el as any).showPicker?.() ?? el.focus();
                 }}
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                   <path strokeWidth="2" d="M8 2v3M16 2v3M3 8h18M5 12h14M5 16h10" />
                 </svg>
               </button>
               <span className="shrink-0">~</span>
-              <span className="px-1 py-[2px] rounded bg-slate-50 border text-slate-700">{recentToDate}</span>
+              <span className="px-1 py-[2px] rounded bg-white/10 border border-white/10 text-white/80">{recentToDate}</span>
 
               {/* To 버튼 + 투명 date input(앵커) */}
               <div className="relative">
                 <button
                   type="button"
-                  className="inline-flex items-center gap-1 px-2 py-[4px] rounded border hover:bg-slate-50"
+                  className="inline-flex items-center gap-1 px-2 py-[4px] rounded border border-white/10 text-white/80 hover:bg-white/10"
                   title="To 날짜 변경"
                   onClick={() => {
                     const el = recentToRef.current;
@@ -1517,7 +1517,7 @@ export default function LoggedInDashboard({
                     (el as any).showPicker?.() ?? el.focus();
                   }}
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                     <path strokeWidth="2" d="M8 2v3M16 2v3M3 8h18M5 12h14M5 16h10" />
                   </svg>
                 </button>
@@ -1529,14 +1529,14 @@ export default function LoggedInDashboard({
                   ref={recentFromRef}
                   type="date"
                   value={recentFromDate}
-                  // ✅ 'from'은 선택 가능한 최소/최대 범위를 'to' 기준 31일로 제한
-                  min={addDaysStr(recentToDate, -30)}
+                  // ✅ 'from'은 선택 가능한 최소/최대 범위를 'to' 기준 1년으로 제한
+                  min={addDaysStr(recentToDate, -365)}
                   max={recentToDate}
                   onChange={(e) => {
                     const nextFrom = e.currentTarget.value;
                     if (!nextFrom) return;
-                    if (daysBetweenInclusive(nextFrom, recentToDate) > 31) {
-                      alert("검색 기간은 최대 31일까지만 가능합니다.");
+                    if (daysBetweenInclusive(nextFrom, recentToDate) > 365) {
+                      alert("검색 기간은 최대 1년까지만 가능합니다.");
                       // 상태는 그대로 두고(유효하지 않으니) input 값도 되돌림
                       e.currentTarget.value = recentFromDate;
                       return;
@@ -1549,14 +1549,14 @@ export default function LoggedInDashboard({
                   ref={recentToRef}
                   type="date"
                   value={recentToDate}
-                  // ✅ 'to'는 'from' 기준 31일을 넘지 못하도록 제한
+                  // ✅ 'to'는 'from' 기준 1년을 넘지 못하도록 제한
                   min={recentFromDate}
-                  max={addDaysStr(recentFromDate, 30)}
+                  max={addDaysStr(recentFromDate, 365)}
                   onChange={(e) => {
                     const nextTo = e.currentTarget.value;
                     if (!nextTo) return;
-                    if (daysBetweenInclusive(recentFromDate, nextTo) > 31) {
-                      alert("검색 기간은 최대 31일까지만 가능합니다.");
+                    if (daysBetweenInclusive(recentFromDate, nextTo) > 365) {
+                      alert("검색 기간은 최대 1년까지만 가능합니다.");
                       e.currentTarget.value = recentToDate;
                       return;
                     }
@@ -1569,11 +1569,11 @@ export default function LoggedInDashboard({
           </div>
 
           {recentLoading ? (
-            <div className="h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-500">
+            <div className="h-12 rounded-xl border border-white/10 bg-white/5 flex items-center px-3 text-sm text-white/60">
               불러오는 중…
             </div>
           ) : recentList.length === 0 ? (
-            <div className="mt-3 h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-400 italic">
+            <div className="mt-3 h-12 rounded-xl border border-white/10 bg-white/5 flex items-center px-3 text-sm text-white/50 italic">
               최근 컷 이력이 없습니다.
             </div>
           ) : (
@@ -1587,21 +1587,21 @@ export default function LoggedInDashboard({
                 .sort((a, b) => new Date(b.row.cutAt).getTime() - new Date(a.row.cutAt).getTime());
 
               const btnClass = (tone: "default" | "warning" | "success") => {
-                if (tone === "warning") return "px-2 py-[6px] text-[12px] rounded-md bg-orange-500 text-white hover:opacity-90";
+                if (tone === "warning") return "px-2 py-[6px] text-[12px] rounded-md bg-orange-400 text-white hover:opacity-90";
                 if (tone === "success") return "px-2 py-[6px] text-[12px] rounded-md bg-emerald-500 text-white";
-                return "px-2 py-[6px] text-[12px] rounded-md border hover:bg-slate-50";
+                return "px-2 py-[6px] text-[12px] rounded-md border border-white/10 text-white/80 hover:bg-white/10";
               };
 
               const Item = ({r, act}: { r: RecentTimelineRow; act: ReturnType<typeof calcAction> }) => (
-                <li key={`${r.id}-${r.cutAt}`} className="rounded-lg border bg-white px-3 py-2 text-sm shadow-sm">
+                <li key={`${r.id}-${r.cutAt}`} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm shadow-sm text-white/80">
                   <div className="flex items-center justify-between gap-2">
-                    <div className="font-medium truncate">{r.bossName}</div>
-                    <div className="text-[11px] text-slate-500 whitespace-nowrap">
+                    <div className="font-medium truncate text-white">{r.bossName}</div>
+                    <div className="text-[11px] text-white/60 whitespace-nowrap">
                       {fmtTimeHM(r.cutAt)}
                     </div>
                   </div>
                   <div className="mt-1 flex items-center justify-between">
-                    <div className="text-[11px] text-slate-500">{new Date(r.cutAt).toLocaleString()}</div>
+                    <div className="text-[11px] text-white/60">{new Date(r.cutAt).toLocaleString()}</div>
                     <button
                       className={btnClass(act.tone)}
                       onClick={async () => {
@@ -1625,11 +1625,11 @@ export default function LoggedInDashboard({
                   {/* 고정 섹션(판매중/분배미완) */}
                   {needAction.length > 0 && (
                     <div>
-                      <div className="mb-1 text-[11px] text-orange-600 font-semibold">처리 필요</div>
+                      <div className="mb-1 text-[11px] text-orange-300 font-semibold">처리 필요</div>
                       <ul className="space-y-2">
                         {needAction.map(x => <Item key={x.row.id + x.row.cutAt} r={x.row} act={x.action} />)}
                       </ul>
-                      <div className="my-2 border-t" />
+                      <div className="my-2 border-t border-white/10" />
                     </div>
                   )}
 
@@ -1645,20 +1645,21 @@ export default function LoggedInDashboard({
       </div>
 
       {/* 하단 20%: 고정 보스 */}
-      <div className="relative z-[500] flex-[1.6] min-h-0 border-t mt-3 pt-2 overflow-x-auto">
-        <h2 className="text-base font-semibold mb-2 text-slate-700">
+      <div className="relative z-[500] flex-[1.6] min-h-0 border-t border-white/10 mt-3 pt-2 px-3">
+        <h2 className="text-base font-semibold mb-2 text-white/80">
           고정 보스
         </h2>
         {loading ? (
-          <div className="h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-500">
+          <div className="h-12 rounded-xl border border-white/10 bg-white/5 flex items-center px-3 text-sm text-white/60">
             불러오는 중…
           </div>
         ) : fixedSorted.length === 0 ? (
-          <div className="mt-3 h-12 rounded-xl border shadow-sm flex items-center px-3 text-sm text-slate-400 italic">
+          <div className="mt-3 h-12 rounded-xl border border-white/10 bg-white/5 flex items-center px-3 text-sm text-white/50 italic">
             고정 보스가 없습니다.
           </div>
         ) : (
-          <div className="flex gap-3 pb-3">
+          <div className="overflow-x-auto overflow-y-hidden px-1">
+            <div className="flex gap-3 pb-3 pr-2">
             {fixedSorted.map((fb) => {
               const now = Date.now();
               const remain = fixedRemainMs(fb, now);
@@ -1671,10 +1672,10 @@ export default function LoggedInDashboard({
               const isBlue = isCaught || postLast || afterGrace;
               const isRed = soon || overdueKeep;
               const wrapClass = isRed
-                ? "relative z-[510] shrink-0 w-[220px] rounded-xl border shadow-sm p-3 text-sm ring-2 ring-rose-400 bg-rose-50/60 animate-blink"
+                ? "relative z-[510] shrink-0 w-[220px] rounded-xl border border-rose-400/70 shadow-sm p-3 text-sm ring-2 ring-rose-400 bg-rose-500/15 animate-blink"
                 : isBlue
-                ? "relative z-[510] shrink-0 w-[220px] rounded-xl border shadow-sm p-3 text-sm ring-2 ring-sky-300 bg-sky-50/60"
-                : "relative z-[510] shrink-0 w-[220px] rounded-xl border shadow-sm p-3 text-sm bg-white";
+                ? "relative z-[510] shrink-0 w-[220px] rounded-xl border border-sky-300/60 shadow-sm p-3 text-sm ring-2 ring-sky-300 bg-sky-500/10"
+                : "relative z-[510] shrink-0 w-[220px] rounded-xl border border-white/10 shadow-sm p-3 text-sm bg-white/5";
 
               const showCountdown = remain > 0 && remain <= HIGHLIGHT_MS;
 
@@ -1682,22 +1683,17 @@ export default function LoggedInDashboard({
               const isDailyBoss = Number(fb.respawn ?? 0) === 1440;
               const cutToday = isDailyBoss && isCutTodayFixed(fb);
 
-              return (
-                <div key={fb.id} className={wrapClass}>
-                  {showCountdown && (
-                    <span className="pointer-events-none absolute right-2 bottom-2 z-20 text-[11px] px-2 py-0.5 rounded-md border bg-white/90 backdrop-blur-sm shadow-sm">
-                      {fmtMMSS2(remain)} 남음
-                    </span>
-                  )}
+                return (
+                  <div key={fb.id} className={wrapClass}>
                   <div className="flex items-center justify-between">
-                    <div className="font-medium truncate">{fb.name}</div>
-                    <div className="text-xs text-slate-500 ml-2 truncate max-w-[110px]">
+                    <div className="font-medium truncate text-white">{fb.name}</div>
+                    <div className="text-xs text-white/60 ml-2 truncate max-w-[110px]">
                       {fb.location}
                     </div>
                   </div>
 
                   {/* 젠 시각 + 컷 버튼 한 줄 */}
-                  <div className="mt-1 flex items-center justify-between text-xs text-slate-600 gap-2">
+                  <div className="mt-1 flex items-center justify-between text-xs text-white/70 gap-2">
                     {/* 젠 시각 영역 */}
                     <div className="flex items-center gap-1 min-w-0">
                       <span className="shrink-0">젠 시각:</span>
@@ -1718,7 +1714,12 @@ export default function LoggedInDashboard({
                     </div>
 
                     {/* 버튼 영역 (젠 시각 오른쪽) */}
-                    <div className="shrink-0">
+                    <div className="shrink-0 flex items-center gap-2">
+                      {showCountdown && (
+                        <span className="text-[11px] px-2 py-0.5 rounded-md border border-white/10 bg-white/10 backdrop-blur-sm shadow-sm text-white/80">
+                          {fmtMMSS2(remain)} 남음
+                        </span>
+                      )}
                       {isDailyBoss && cutToday ? (
                         <button
                           type="button"
@@ -1731,16 +1732,17 @@ export default function LoggedInDashboard({
                         <button
                           type="button"
                           onClick={() => cutFixedBoss(fb)}
-                          className="px-2 py-[3px] rounded-md bg-slate-900 text-white text-[10px] hover:opacity-90"
+                          className="px-2 py-[3px] rounded-md bg-white/15 text-white text-[10px] hover:bg-white/20"
                         >
                           컷
                         </button>
                       )}
                     </div>
                   </div>
-                </div>
-              );
-            })}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>
@@ -1910,10 +1912,10 @@ export default function LoggedInDashboard({
           aria-modal="true"
           role="dialog"
         >
-          <div className="relative bg-white rounded-2xl shadow-xl w-[520px] max-w-[92vw] p-6">
+          <div className="relative rounded-2xl border border-white/10 bg-slate-900/90 text-white shadow-xl w-[520px] max-w-[92vw] p-6 backdrop-blur">
             <h2 className="text-lg font-bold mb-3">기능 업데이트 안내 (2026.02.07)</h2>
 
-            <div className="text-sm text-slate-700 space-y-3">
+            <div className="text-sm text-white/80 space-y-3">
               <div>
                 <div className="font-semibold">1. 혈맹 레이드 입력 기능 완성</div>
                 <div className="ml-4 mt-1 space-y-1">
@@ -1930,18 +1932,18 @@ export default function LoggedInDashboard({
             </div>
 
             <div className="mt-6 flex items-center justify-between">
-              <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+              <label className="flex items-center gap-2 text-sm text-white/70 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={updateHide7d}
                   onChange={(e) => setUpdateHide7d(e.currentTarget.checked)}
-                  className="w-4 h-4"
+                  className="w-4 h-4 accent-emerald-400"
                 />
                 7일간 보지 않기
               </label>
               <button
                 type="button"
-                className="px-4 py-2 text-sm rounded bg-slate-800 text-white hover:bg-black"
+                className="px-4 py-2 text-sm rounded bg-white text-slate-900 hover:bg-emerald-100"
                 onClick={() => {
                   if (updateHide7d) {
                     const until = Date.now() + 7 * 24 * 60 * 60 * 1000;

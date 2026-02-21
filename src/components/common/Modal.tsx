@@ -42,22 +42,24 @@ export default function Modal({
   };
 
   return (
-    <div className="fixed inset-0 z-[1000]">
+    <div className="fixed inset-0 z-[1000] text-white">
       {/* Overlay */}
       <div
-        className="absolute inset-0 bg-black/30"
+        className="absolute inset-0 bg-black/55 backdrop-blur-sm"
         // 오버레이로 닫히지 않도록 옵션 제공
         onMouseDown={closeOnOverlay ? onClose : stop}
         onClick={closeOnOverlay ? onClose : stop}
       />
 
       {/* Content 래퍼 */}
-      <div className={`relative bg-white rounded-2xl shadow-xl w-[92%] max-w-5xl mx-auto my-10 ${maxWidth ?? ""}`}>
-        <div className="px-4 py-3 border-b flex items-center justify-between">
-          <h2 className="font-semibold">{title}</h2>
+      <div
+        className={`relative w-[92%] max-w-5xl mx-auto my-10 rounded-2xl border border-white/10 bg-gradient-to-b from-slate-900/90 to-slate-950/90 shadow-[0_20px_60px_rgba(0,0,0,0.45)] ${maxWidth ?? ""}`}
+      >
+        <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
+          <h2 className="font-semibold text-white">{title}</h2>
           <button
             type="button"
-            className="text-slate-400 hover:text-slate-600"
+            className="text-white/60 hover:text-white"
             onClick={onClose}
           >
             ✕
@@ -67,7 +69,7 @@ export default function Modal({
         <div className="p-4">{children}</div>
 
         {footer != null && (
-          <div className="px-4 py-3 border-t flex justify-end gap-2">
+          <div className="px-4 py-3 border-t border-white/10 flex justify-end gap-2">
             {footer}
           </div>
         )}

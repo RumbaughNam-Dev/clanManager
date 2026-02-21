@@ -1,6 +1,6 @@
-/* ===== MobileLogin global scale (about 1.5x) ===== */
+/* ===== MobileLogin global scale (viewport-based) ===== */
 .mobile-login {
-  font-size: 2.25rem; /* 1.5x of previous 1.5rem (24px → ~36px) */
+  font-size: clamp(22px, 4.2vw + 2vh, 30px);
   line-height: 1.35;
 }
 
@@ -75,13 +75,14 @@
 }
 
 /* === MobileLogin: 제목/부제 1.5배 확대 === */
+/* Title/subtitle sizing via viewport */
 .mobile-login h1{
-  font-size: 1.5em !important;       /* base 대비 1.5배 */
+  font-size: clamp(38px, 7vw + 2.2vh, 56px) !important;
   line-height: 1.15 !important;
 }
 .mobile-login h1 + p { 
-  font-size: 1.2em !important; /* 1.5em × 0.8 = 1.2em */
-  line-height: 1.35 !important; 
+  font-size: clamp(18px, 4.2vw, 24px) !important;
+  line-height: 1.5 !important; 
   opacity: 0.9; 
 }
 
@@ -90,7 +91,7 @@
 .mobile-login button[type="submit"],
 .mobile-login .btn-primary,
 .mobile-login .btn-submit{
-  font-size: calc(1em / 1.5) !important;  /* 0.666…배 */
+  font-size: 1em !important;
   font-weight: 700;
 }
 
@@ -180,7 +181,7 @@
 
 /* 모바일 로그인 폼의 모든 버튼을 동일한 크기/글자 크기로 */
 .mobile-login form button{
-  font-size: calc(1em / 1.5) !important;      /* 베이스 2.25rem 대비 약 1.5배 작게 */
+  font-size: 1em !important;
   padding: 0.9em 1.2em !important;
   border-radius: 0.9em !important;
   font-weight: 700 !important;

@@ -1,6 +1,4 @@
 import React, { useMemo, useState } from "react";
-import PageHeader from "../../components/common/PageHeader";
-import Card from "../../components/common/Card";
 import { postJSON } from "@/lib/http";
 
 // 스크린샷에 있던 서버(월드) 목록에서 "전체"는 제외
@@ -79,11 +77,26 @@ export default function Signup({ onSuccess }: Props) {
   };
 
   return (
-    <div className="space-y-4">
-      <PageHeader title="혈맹 등록 요청" subtitle="서버 선택 → 혈맹/계정 정보 입력 → 요청 제출 (즉시 사용 가능)" />
+    <div
+      className="fixed inset-0 overflow-hidden bg-slate-950 text-white"
+      style={{ fontFamily: '"Space Grotesk", "Noto Sans KR", "Apple SD Gothic Neo", sans-serif' }}
+    >
+      <div className="absolute inset-0">
+        <div className="absolute -top-24 -right-20 h-56 w-56 rounded-full bg-emerald-400/30 blur-3xl" />
+        <div className="absolute bottom-[-120px] left-[-60px] h-72 w-72 rounded-full bg-sky-400/25 blur-3xl" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),transparent_55%)]" />
+      </div>
 
-      <Card>
-        <form className="space-y-6" onSubmit={handleSubmit}>
+      <div className="relative min-h-screen w-full flex items-center justify-center px-6 pt-28 pb-16">
+        <div className="w-full max-w-4xl rounded-2xl border border-white/10 bg-slate-900/80 p-6 text-white shadow-2xl">
+          <div className="mb-4">
+            <h1 className="text-2xl font-bold">혈맹 등록 요청</h1>
+            <p className="text-sm text-white/70">
+              서버 선택 → 혈맹/계정 정보 입력 → 요청 제출 (즉시 사용 가능)
+            </p>
+          </div>
+
+          <form className="space-y-6" onSubmit={handleSubmit}>
           {/* 1) 서버(월드) 선택 */}
           <section className="space-y-2">
             <div className="font-semibold">서버 선택</div>
@@ -98,8 +111,10 @@ export default function Signup({ onSuccess }: Props) {
                     aria-checked={selected}
                     onClick={() => { setWorld(w); setServerNo(null); }}
                     className={[
-                      "px-4 py-2 rounded-xl border text-sm",
-                      selected ? "bg-slate-900 text-white border-slate-900" : "bg-white hover:bg-slate-50"
+                      "px-4 py-2 rounded-xl border text-sm transition-colors",
+                      selected
+                        ? "bg-white/15 text-white border-white/20"
+                        : "bg-white/5 hover:bg-white/10 border-white/10 text-white/80"
                     ].join(" ")}
                   >
                     {w}
@@ -125,8 +140,12 @@ export default function Signup({ onSuccess }: Props) {
                     aria-checked={selected}
                     onClick={() => setServerNo(n)}
                     className={[
-                      "px-3 py-2 rounded-xl border text-sm",
-                      !world ? "opacity-50 cursor-not-allowed" : selected ? "bg-slate-900 text-white border-slate-900" : "bg-white hover:bg-slate-50"
+                      "px-3 py-2 rounded-xl border text-sm transition-colors",
+                      !world
+                        ? "opacity-50 cursor-not-allowed"
+                        : selected
+                        ? "bg-white/15 text-white border-white/20"
+                        : "bg-white/5 hover:bg-white/10 border-white/10 text-white/80"
                     ].join(" ")}
                   >
                     {n}
@@ -143,16 +162,16 @@ export default function Signup({ onSuccess }: Props) {
             <div className="grid md:grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm mb-1">혈맹 이름</label>
-                <input className="w-full border rounded-lg px-3 py-2" placeholder="예: 징벌"
+                <input className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/50 focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-300/20" placeholder="예: 징벌"
                   value={clanName} onChange={(e) => setClanName(e.target.value)} />
               </div>
               <div>
                 <label className="block text-sm mb-1">선택된 서버</label>
-                <input className="w-full border rounded-lg px-3 py-2 bg-gray-50" value={fullServerLabel} readOnly />
+                <input className="w-full rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white/80" value={fullServerLabel} readOnly />
               </div>
               <div>
                 <label className="block text-sm mb-1">아이디</label>
-                <input className="w-full border rounded-lg px-3 py-2" placeholder="관리자 ID"
+                <input className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/50 focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-300/20" placeholder="관리자 ID"
                   value={loginId} onChange={(e) => setLoginId(e.target.value)} autoComplete="username" />
               </div>
             </div>
@@ -171,7 +190,7 @@ export default function Signup({ onSuccess }: Props) {
 
           {/* 5) 제출 */}
           <div className="pt-2 flex items-center justify-between gap-3">
-            <div className="text-sm text-gray-600 space-y-1">
+            <div className="text-sm text-white/65 space-y-1">
               <p>
                 <span className="mr-1">•</span>
                 초기 비밀번호는 <span className="font-semibold">1234</span>로 자동 설정됩니다. 로그인 후 반드시 비밀번호를 변경해 주세요.
@@ -184,15 +203,18 @@ export default function Signup({ onSuccess }: Props) {
             <button
               type="submit"
               disabled={!isReady || submitting}
-              className={`px-4 py-2 rounded-xl ${
-                isReady && !submitting ? "bg-slate-900 text-white" : "bg-gray-200 text-gray-500 cursor-not-allowed"
+              className={`px-5 py-2 rounded-xl font-bold ${
+                isReady && !submitting
+                  ? "bg-white text-slate-900 hover:bg-emerald-100"
+                  : "bg-white/30 text-white/70 cursor-not-allowed"
               }`}
             >
               {submitting ? "전송 중..." : "혈맹 등록 요청"}
             </button>
           </div>
-        </form>
-      </Card>
+          </form>
+        </div>
+      </div>
     </div>
   );
 }

@@ -109,22 +109,28 @@ export default function App() {
   const guardAndNav = (next: PageKey) => {
     const publicPages: PageKey[] = ["dashboard", "login", "signup", "feedback"];
     if (!user && !publicPages.includes(next)) {
-      setPage("dashboard"); // ← 로그인 페이지 말고 대시보드로
+      alert("로그인 페이지로 이동합니다.");
+      setPage("login");
       return;
     }
     setPage(next);
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
+    <div className="min-h-screen bg-slate-950 text-white relative overflow-hidden">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute -top-24 -right-20 h-56 w-56 rounded-full bg-emerald-400/25 blur-3xl" />
+        <div className="absolute bottom-[-120px] left-[-60px] h-72 w-72 rounded-full bg-sky-400/20 blur-3xl" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),transparent_55%)]" />
+      </div>
       {!isMobile && (
-        <header className="sticky top-0 z-40 bg-white/80 backdrop-blur border-b">
-          <div className="mx-auto w-full max-w-[1920px] px-6 h-14 flex items-center justify-between gap-4">
+        <header className="sticky top-0 z-40 bg-slate-950/85 text-white backdrop-blur border-b border-white/10">
+          <div className="mx-auto w-full max-w-[1920px] px-6 h-16 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               {/* 🔗 로고 클릭 시 대시보드로 이동 */}
               <button
                 onClick={() => guardAndNav("dashboard")}
-                className="text-xl font-extrabold focus:outline-none"
+                className="text-lg font-extrabold tracking-wide focus:outline-none"
               >
                 린엠 매니저
               </button>
@@ -133,10 +139,10 @@ export default function App() {
                   <button
                     key={p.key}
                     onClick={() => guardAndNav(p.key)}
-                    className={`px-3 py-1.5 rounded-xl text-sm ${
+                    className={`px-3 py-1.5 rounded-xl text-sm transition-colors ${
                       page === p.key
-                        ? "bg-slate-900 text-white"
-                        : "hover:bg-slate-100"
+                        ? "bg-white/10 text-white"
+                        : "text-white/70 hover:text-white hover:bg-white/5"
                     }`}
                   >
                     {p.label}
@@ -147,7 +153,7 @@ export default function App() {
             <div className="flex items-center gap-2 text-sm">
               {user ? (
                 <>
-                  <span className="px-2 py-1 rounded bg-slate-100">
+                  <span className="px-2 py-1 rounded bg-white/10 text-white/90">
                     {user.loginId}
                     {serverDisplay ? ` - ${serverDisplay}` : ""}
                     {user.clanName ? ` · ${user.clanName}` : ""}
@@ -158,7 +164,7 @@ export default function App() {
                       logout();
                       setPage("dashboard");
                     }}
-                    className="px-3 py-1.5 rounded-xl hover:bg-slate-100"
+                    className="px-3 py-1.5 rounded-xl hover:bg-white/10"
                   >
                     로그아웃
                   </button>
@@ -167,13 +173,13 @@ export default function App() {
                 <>
                   <button
                     onClick={() => setPage("login")}
-                    className="px-3 py-1.5 rounded-xl hover:bg-slate-100"
+                    className="px-3 py-1.5 rounded-xl hover:bg-white/10"
                   >
                     로그인
                   </button>
                   <button
                     onClick={() => setPage("signup")}
-                    className="px-3 py-1.5 rounded-xl hover:bg-slate-100"
+                    className="px-3 py-1.5 rounded-xl border border-white/20 hover:bg-white/10"
                   >
                     가입
                   </button>
@@ -187,8 +193,8 @@ export default function App() {
       <main
         className={`mx-auto w-full max-w-[1920px] px-6 ${
           page === "dashboard"
-            ? "h-[calc(100vh-56px)] flex flex-col"
-            : "py-6 space-y-6"
+            ? (isMobile ? "h-[100dvh] overflow-y-auto" : "h-[calc(100vh-56px)] flex flex-col")
+            : "h-[calc(100vh-56px)] overflow-y-auto py-6 space-y-6"
         }`}
       >
         {page === "dashboard" && (isMobile ? <MobileDashboard /> : <Dashboard />)}

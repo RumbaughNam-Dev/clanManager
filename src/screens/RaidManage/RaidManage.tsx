@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { postJSON } from "@/lib/http";
 import { useAuth } from "@/contexts/AuthContext";
 import ScreenshotOCR from "@/components/modals/ScreenshotOCR";
+import Modal from "@/components/common/Modal";
 
 /** 날짜 유틸 */
 const MS_DAY = 24 * 60 * 60 * 1000;
@@ -1248,16 +1249,16 @@ export default function RaidManage() {
   }
 
   return (
-    <div className="w-full h-screen flex bg-white text-black">
+    <div className="w-full h-screen flex bg-transparent text-white">
       {/* LEFT: 주차 리스트 */}
-      <div className="w-1/5 h-full border-r border-gray-300 flex flex-col bg-white">
-        <div className="px-4 py-4 font-extrabold text-xl border-b border-gray-300">
+      <div className="w-1/5 h-full border-r border-white/10 flex flex-col bg-white/5">
+        <div className="px-4 py-4 font-extrabold text-xl border-b border-white/10">
           주차별 레이드
         </div>
 
         <div
           ref={scrollContainerRef}
-          className="flex-1 overflow-y-auto px-4 py-3 text-sm"
+          className="flex-1 overflow-y-auto px-4 py-3 text-sm text-white/80"
           onScroll={handleScroll}
           onWheel={handleWheel}
         >
@@ -1284,7 +1285,7 @@ export default function RaidManage() {
             return (
               <div key={item.weekKey ?? item.index} className="mb-3">
                 {showMonthHeader && (
-                  <div className="pt-2 mt-2 mb-1 border-t border-gray-300 text-xs text-gray-500 font-semibold">
+                  <div className="pt-2 mt-2 mb-1 border-t border-white/10 text-xs text-white/50 font-semibold">
                     {owner.year}년 {owner.month}월
                   </div>
                 )}
@@ -1310,14 +1311,14 @@ export default function RaidManage() {
                     <div className="flex flex-col">
                       <div
                         className={`font-semibold text-base ${
-                          isSelected ? "text-red-600" : "text-black"
+                          isSelected ? "text-emerald-300" : "text-white"
                         }`}
                       >
                         {item.week}주차 레이드
                       </div>
 
                       {/* 주차 날짜 범위 */}
-                      <div className="text-xs text-gray-500 mt-0.5">
+                      <div className="text-xs text-white/50 mt-0.5">
                         {rangeLabel}
                       </div>
                     </div>
@@ -1330,7 +1331,7 @@ export default function RaidManage() {
       </div>
 
       {/* RIGHT: 보스 카드 + 팝업 */}
-      <div className="w-4/5 h-full bg-white p-4 overflow-y-auto">
+      <div className="w-4/5 h-full bg-transparent p-4 overflow-y-auto">
         {selectedWeek && (
           <>
             <div className="mb-4">
@@ -1338,7 +1339,7 @@ export default function RaidManage() {
                 {selectedWeek.year}년 {selectedWeek.month}월{" "}
                 {selectedWeek.week}주차 레이드
               </h1>
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-white/60">
                 기준 월요일: {selectedWeek.monday.toISOString().slice(0, 10)}
               </p>
             </div>
@@ -1353,7 +1354,7 @@ export default function RaidManage() {
                 return (
                   <div
                     key={boss.bossMetaId}
-                    className="border border-gray-300 rounded-2xl px-4 py-3 h-32 flex items-center overflow-hidden"
+                    className="border border-white/10 bg-white/5 rounded-2xl px-4 py-3 h-32 flex items-center overflow-hidden"
                   >
                     {/* 왼쪽: 텍스트 영역 */}
                     <div className="flex flex-col justify-center min-w-0">
@@ -1365,11 +1366,11 @@ export default function RaidManage() {
                         <span className="block truncate">{boss.bossName}</span>
                       </div>
 
-                      <div className="text-gray-700 text-sm">
+                      <div className="text-white/70 text-sm">
                         참여 인원: <strong>0명</strong>
                       </div>
 
-                      <div className="text-gray-700 text-sm mt-1">
+                      <div className="text-white/70 text-sm mt-1">
                         아이템 개수: <strong>{savedItems.length}개</strong>
                       </div>
                     </div>
@@ -1396,7 +1397,7 @@ export default function RaidManage() {
                             정보입력
                         </button>
                         )}
-                      <div className="text-xs text-gray-500 mt-1">
+                      <div className="text-xs text-white/50 mt-1">
                         {!cut ? "미완료" : cutLabel}
                       </div>
                     </div>
@@ -1410,12 +1411,12 @@ export default function RaidManage() {
 
       {/* 정보입력 팝업 */}
       {activeBossForPopup && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-lg w-[900px] max-w-[95vw] max-h-[90vh] p-5 relative flex flex-col">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-slate-900/90 border border-white/10 rounded-2xl shadow-lg w-[900px] max-w-[95vw] max-h-[90vh] p-5 relative flex flex-col text-white">
             {/* 헤더 */}
             <div className="flex items-center justify-between mb-4 flex-shrink-0">
               <div className="flex flex-col">
-                <span className="text-sm text-gray-500">
+                <span className="text-sm text-white/60">
                   {selectedWeek &&
                     `${selectedWeek.year}년 ${selectedWeek.month}월 ${selectedWeek.week}주차`}
                 </span>
@@ -1425,7 +1426,7 @@ export default function RaidManage() {
               </div>
               <button
                 onClick={handleClosePopup}
-                className="text-gray-500 hover:text-black text-xl leading-none"
+                className="text-white/60 hover:text-white text-xl leading-none"
               >
                 ×
               </button>
@@ -1434,7 +1435,7 @@ export default function RaidManage() {
             {/* 본문: 좌측(드랍 아이템) / 우측(참여 인원) */}
             <div className="flex gap-4 flex-1 min-h-0">
               {/* LEFT: 드랍 아이템 / 루팅자 */}
-              <div className="flex-[1.5] border border-gray-200 rounded-xl p-3 flex flex-col min-h-0">
+              <div className="flex-[1.5] border border-white/10 rounded-xl p-3 flex flex-col min-h-0 bg-white/5">
                 {mode === "list" ? (
                     // ───────────────── 리스트 모드 (테이블형) ─────────────────
                     <div className="text-xs flex-1 min-h-0 flex flex-col">
@@ -1444,14 +1445,14 @@ export default function RaidManage() {
                     </div>
 
                     {savedItems.length === 0 ? (
-                        <div className="text-[11px] text-gray-500 border border-gray-200 rounded px-2 py-2 bg-gray-50">
+                        <div className="text-[11px] text-white/60 border border-white/10 rounded px-2 py-2 bg-white/5">
                         등록된 아이템이 없습니다. 아래 <strong>수정</strong> 버튼을 눌러
                         아이템을 입력해 주세요.
                         </div>
                     ) : (
                         <>
                         {/* 헤더 라인 */}
-                        <div className="grid grid-cols-[2fr,1.4fr,1.2fr,1.4fr] text-[11px] font-semibold text-gray-500 border-b border-gray-200 pb-1 mb-1">
+                        <div className="grid grid-cols-[2fr,1.4fr,1.2fr,1.4fr] text-[11px] font-semibold text-white/60 border-b border-white/10 pb-1 mb-1">
                             <div>아이템</div>
                             <div>루팅자</div>
                             <div>판매가</div>
@@ -1459,7 +1460,7 @@ export default function RaidManage() {
                         </div>
 
                         {/* 데이터 행들 */}
-                        <div className="divide-y divide-gray-100 overflow-y-auto min-h-0">
+                        <div className="divide-y divide-white/10 overflow-y-auto min-h-0">
                             {savedItems.map((item) => {
                             const isLooter = user != null && String(item.looterId) === String(user.id);
                             const canManage = isLooter || isClanAdmin(user);
@@ -1472,7 +1473,7 @@ export default function RaidManage() {
                                 saleNode = (
                                     <input
                                     type="number"
-                                    className="border border-gray-300 rounded px-2 py-0.5 w-24 text-right text-[12px]"
+                                    className="border border-white/10 rounded px-2 py-0.5 w-24 text-right text-[12px]"
                                     value={item.salePrice ?? ""}
                                     placeholder="0"
                                     onChange={(e) => {
@@ -1516,7 +1517,7 @@ export default function RaidManage() {
                                 );
                               } else {
                                 actionNode = (
-                                  <span className="text-[11px] text-gray-700">판매중</span>
+                                  <span className="text-[11px] text-white/80">판매중</span>
                                 );
                               }
                             } else if (distributionMode === "TREASURY") {
@@ -1541,7 +1542,7 @@ export default function RaidManage() {
                               // 판매완료 + 분배 미완료
                               if (raidParticipants.length === 0) {
                                 actionNode = (
-                                  <span className="px-2 py-0.5 rounded bg-gray-200 text-gray-700 text-[11px]">
+                                  <span className="px-2 py-0.5 rounded bg-gray-200 text-white/80 text-[11px]">
                                     분배 준비중
                                   </span>
                                 );
@@ -1557,7 +1558,7 @@ export default function RaidManage() {
                                 );
                               } else {
                                 actionNode = (
-                                  <span className="text-[11px] text-gray-700">분배 진행 중</span>
+                                  <span className="text-[11px] text-white/80">분배 진행 중</span>
                                 );
                               }
                             } else {
@@ -1567,7 +1568,7 @@ export default function RaidManage() {
                             return (
                                 <div
                                 key={item.id}
-                                className="grid grid-cols-[2fr,1.4fr,1.2fr,1.6fr] items-center py-1.5 text-[13px] border-b border-gray-100 last:border-b-0"
+                                className="grid grid-cols-[2fr,1.4fr,1.2fr,1.6fr] items-center py-1.5 text-[13px] border-b border-white/10 last:border-b-0"
                                 >
                                 {/* 아이템 */}
                                 <div className="truncate">{item.itemName}</div>
@@ -1604,7 +1605,7 @@ export default function RaidManage() {
                     <div className="text-sm font-semibold mb-2">드랍 아이템 목록</div>
 
                     {mode === "edit" && (
-                      <div className="grid grid-cols-[2fr,1.4fr,0.9fr,0.6fr] text-[11px] font-semibold text-gray-500 border-b border-gray-200 pb-1 mb-2">
+                      <div className="grid grid-cols-[2fr,1.4fr,0.9fr,0.6fr] text-[11px] font-semibold text-white/60 border-b border-white/10 pb-1 mb-2">
                         <div>드랍 아이템</div>
                         <div>루팅자</div>
                         <div className="text-center">판매상태</div>
@@ -1644,7 +1645,7 @@ export default function RaidManage() {
                             {/* 아이템명 */}
                             <input
                               type="text"
-                              className={`flex-[1.2] border border-gray-300 rounded px-2 py-1 ${
+                              className={`flex-[1.2] border border-white/10 rounded px-2 py-1 ${
                                 locked ? "bg-gray-100" : ""
                               }`}
                               maxLength={100}
@@ -1666,7 +1667,7 @@ export default function RaidManage() {
                             <div className={`relative ${mode === "edit" ? "" : "flex-1"}`}>
                               <input
                                 type="text"
-                                className={`w-full border border-gray-300 rounded px-2 py-1 ${
+                                className={`w-full border border-white/10 rounded px-2 py-1 ${
                                   locked ? "bg-gray-100" : ""
                                 }`}
                                 placeholder="루팅자 검색"
@@ -1734,7 +1735,7 @@ export default function RaidManage() {
                                 row.looterId === null &&
                                 filteredMembers.length > 0 &&
                                 !locked && (
-                                  <div className="absolute left-0 right-0 mt-1 max-h-40 overflow-y-auto bg-white border border-gray-300 rounded shadow text-xs z-10">
+                                  <div className="absolute left-0 right-0 mt-1 max-h-40 overflow-y-auto bg-white border border-white/10 rounded shadow text-xs z-10">
                                     {filteredMembers
                                       .slice(0, 8)
                                       .map((m, idx) => {
@@ -1766,7 +1767,7 @@ export default function RaidManage() {
                             {/* 판매상태 + 삭제 (수정 모드에서만) */}
                             {mode === "edit" && (
                               <>
-                                <div className="text-center text-[11px] text-gray-600 pt-1">
+                                <div className="text-center text-[11px] text-white/70 pt-1">
                                   {baseItem?.isSold ? "판매완료" : "판매전"}
                                 </div>
                                 <button
@@ -1803,7 +1804,7 @@ export default function RaidManage() {
                             setDraftRows(createInitialDraftRows());
                             setLooterActiveIndexMap({});
                             }}
-                            className="px-3 py-1 rounded text-xs border border-gray-300 text-gray-700 hover:bg-gray-100"
+                            className="px-3 py-1 rounded text-xs border border-white/10 text-white/80 hover:bg-gray-100"
                         >
                             취소
                         </button>
@@ -1823,7 +1824,7 @@ export default function RaidManage() {
               </div>
 
               {/* RIGHT: 참여 인원 */}
-              <div className="flex-1 border border-gray-200 rounded-xl p-3 bg-gray-50 flex flex-col min-h-0">
+              <div className="flex-1 border border-white/10 rounded-xl p-3 bg-white/5 flex flex-col min-h-0">
                 <div className="flex items-center justify-between mb-2">
                   <div className="text-sm font-semibold">참여 인원</div>
                 {isMemberSelectorOpen && (
@@ -1841,20 +1842,20 @@ export default function RaidManage() {
                 {isMemberSelectorOpen ? (
                   /* 멤버 선택 모드 */
                   <div className="space-y-2 flex-1 flex flex-col min-h-0">
-                    <div className="text-xs text-gray-600 mb-2">
+                    <div className="text-xs text-white/70 mb-2">
                       보스에 참여한 혈원을 선택해주세요.
                     </div>
 
                     {loadingClanMembers ? (
-                      <div className="text-xs text-gray-500 py-4 text-center flex-1 flex items-center justify-center">
+                      <div className="text-xs text-white/60 py-4 text-center flex-1 flex items-center justify-center">
                         혈맹원 목록 로딩 중...
                       </div>
                     ) : (
                       <>
                         {/* 멤버 선택 테이블 */}
-                        <div className="border border-gray-200 rounded bg-white flex flex-col flex-1 min-h-0">
+                        <div className="border border-white/10 rounded bg-white/5 flex flex-col flex-1 min-h-0">
                           {/* 테이블 헤더 - sticky 고정 */}
-                          <div className="grid grid-cols-[30px,1.5fr,1fr] text-[11px] font-semibold text-gray-500 border-b border-gray-200 pb-1 px-1 pt-1 bg-gray-50 flex-shrink-0 sticky top-0 z-10">
+                          <div className="grid grid-cols-[30px,1.5fr,1fr] text-[11px] font-semibold text-white/60 border-b border-white/10 pb-1 px-1 pt-1 bg-white/5 flex-shrink-0 sticky top-0 z-10">
                             <div className="text-center">
                               <input
                                 type="checkbox"
@@ -1883,7 +1884,7 @@ export default function RaidManage() {
                                 return (
                                   <div
                                     key={member.userId}
-                                    className={`grid grid-cols-[30px,1.5fr,1fr] p-2 border border-gray-200 rounded text-xs items-center hover:bg-blue-50 transition ${isSelected ? "bg-blue-100 border-blue-300" : ""}`}
+                                    className={`grid grid-cols-[30px,1.5fr,1fr] p-2 border border-white/10 rounded text-xs items-center hover:bg-white/10 transition ${isSelected ? "bg-white/10 border-white/20" : ""}`}
                                   >
                                     <div className="text-center">
                                       <input
@@ -1895,10 +1896,10 @@ export default function RaidManage() {
                                         className="w-4 h-4 cursor-pointer"
                                       />
                                     </div>
-                                    <div className="truncate text-gray-600">
+                                    <div className="truncate text-white/70">
                                       {member.loginId}
                                     </div>
-                                    <div className="text-gray-600">
+                                    <div className="text-white/70">
                                       {roleLabel}
                                     </div>
                                   </div>
@@ -1920,7 +1921,7 @@ export default function RaidManage() {
                           {raidParticipants.length > 0 && (
                             <button
                               onClick={() => setShowMemberSelector(false)}
-                              className="flex-1 px-3 py-2 text-xs bg-gray-400 text-white rounded hover:bg-gray-500 font-semibold"
+                              className="flex-1 px-3 py-2 text-xs bg-gray-400 text-white rounded hover:bg-white/50 font-semibold"
                             >
                               취소
                             </button>
@@ -1933,23 +1934,23 @@ export default function RaidManage() {
                   /* 참여자 표시 모드 */
                   <div className="space-y-2 flex-1 flex flex-col min-h-0">
                     {loadingParticipants ? (
-                      <div className="text-xs text-gray-500 py-4 text-center flex-1 flex items-center justify-center">
+                      <div className="text-xs text-white/60 py-4 text-center flex-1 flex items-center justify-center">
                         참여 인원 로딩 중...
                       </div>
                     ) : raidParticipants.length === 0 ? (
-                      <div className="flex-1 flex flex-col items-center justify-center bg-white rounded border border-gray-200">
-                        <div className="text-sm text-gray-600 font-medium">참여자를 입력해주세요.</div>
+                      <div className="flex-1 flex flex-col items-center justify-center bg-white/5 rounded border border-white/10">
+                        <div className="text-sm text-white/70 font-medium">참여자를 입력해주세요.</div>
                       </div>
                     ) : (
                       <div className="space-y-1 flex-1 flex flex-col min-h-0">
                         {/* 분배 시작 전 안내 메시지 */}
                         {!currentDistributingItemId && savedItems.length > 0 && (
-                          <div className="p-3 bg-blue-50 border border-blue-200 rounded text-xs text-blue-700 mb-2">
+                          <div className="p-3 bg-white/5 border border-white/10 rounded text-xs text-white/70 mb-2">
                             좌측에서 아이템을 선택해 주세요.
                           </div>
                         )}
                         {/* 테이블 헤더 - sticky 고정 */}
-                        <div className="grid grid-cols-[1fr,0.8fr,1.2fr] text-[11px] font-semibold text-gray-500 border-b border-gray-200 pb-1 mb-1 sticky top-0 bg-white z-10">
+                        <div className="grid grid-cols-[1fr,0.8fr,1.2fr] text-[11px] font-semibold text-white/60 border-b border-white/10 pb-1 mb-1 sticky top-0 bg-slate-900/70 z-10">
                           <div>아이디</div>
                           <div className="text-center">분배금액</div>
                           <div className="text-center">분배</div>
@@ -1976,7 +1977,7 @@ export default function RaidManage() {
                               let actionNode: React.ReactNode = null;
                               if (!currentDistributingItemId) {
                                 actionNode = (
-                                  <span className="text-[10px] font-medium text-gray-400">
+                                  <span className="text-[10px] font-medium text-white/40">
                                     -
                                   </span>
                                 );
@@ -2008,7 +2009,7 @@ export default function RaidManage() {
                               return (
                                 <div
                                   key={participant.userId}
-                                  className="grid grid-cols-[1fr,0.8fr,1.2fr] p-2 bg-white rounded border border-gray-200 hover:border-gray-300 text-xs items-center"
+                                  className="grid grid-cols-[1fr,0.8fr,1.2fr] p-2 bg-white/5 rounded border border-white/10 hover:border-white/20 text-xs items-center"
                                 >
                                   <div className="truncate">
                                     {participant.loginId || participant.nickname || String(participant.userId)}
@@ -2043,8 +2044,8 @@ export default function RaidManage() {
                     )}
                   </div>
                 ) : (
-                  <div className="flex-1 flex items-center justify-center bg-white rounded border border-gray-200">
-                    <div className="text-sm text-gray-600 font-medium">
+                  <div className="flex-1 flex items-center justify-center bg-white/5 rounded border border-white/10">
+                    <div className="text-sm text-white/70 font-medium">
                       혈비 귀속 보스 입니다.
                     </div>
                   </div>
@@ -2056,7 +2057,7 @@ export default function RaidManage() {
             <div className="mt-6 flex justify-end gap-2">
               <button
                 onClick={handleClosePopup}
-                className="px-4 py-2 text-sm rounded border border-gray-300 hover:bg-gray-100"
+                className="px-4 py-2 text-sm rounded border border-white/10 text-white/80 hover:bg-white/10"
               >
                 닫기
               </button>
@@ -2068,7 +2069,7 @@ export default function RaidManage() {
       {/* ───────── 분배 방식 선택 오버레이 ───────── */}
       {modeSelectorOpen && (
         <div className="absolute inset-0 bg-white/90 rounded-2xl flex items-center justify-center">
-          <div className="w-[420px] max-w-[90%] bg-white border border-gray-200 rounded-2xl shadow-lg p-5 text-sm">
+          <div className="w-[420px] max-w-[90%] bg-white border border-white/10 rounded-2xl shadow-lg p-5 text-sm">
             <div className="font-semibold mb-4">
               해당 레이드의 분배 방식을 선택해주세요.
             </div>
@@ -2076,7 +2077,7 @@ export default function RaidManage() {
             {/* 상단: 분배 방식 표시만 */}
             <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-gray-700">
+                <span className="text-sm font-semibold text-white/80">
                 처리 방식
                 </span>
                 <span className="px-3 py-1 rounded-full text-xs bg-blue-50 text-blue-700 border border-blue-200">
@@ -2085,14 +2086,14 @@ export default function RaidManage() {
             </div>
 
             {distributionMode === "ITEM" && (
-                <span className="text-[11px] text-gray-500">
+                <span className="text-[11px] text-white/60">
                 ※ 이후 혈비 귀속으로 변경 시 판매·분배 정보가 초기화될 수 있습니다.
                 </span>
             )}
             </div>
 
             {/* 경고 문구 */}
-            <p className="text-xs text-gray-500 mb-4 leading-relaxed">
+            <p className="text-xs text-white/60 mb-4 leading-relaxed">
               혈원분배로 저장하시고 추 후 혈비 귀속으로 변경하시려고 하면
               판매 정보와 분배정보가 사라질 수 있으니 주의해주세요.
             </p>
@@ -2101,7 +2102,7 @@ export default function RaidManage() {
             <div className="flex justify-end gap-2">
               <button
                 type="button"
-                className="px-4 py-1.5 rounded text-xs border border-gray-300 text-gray-700 hover:bg-gray-100"
+                className="px-4 py-1.5 rounded text-xs border border-white/10 text-white/80 hover:bg-gray-100"
                 onClick={handleClosePopup}
               >
                 취소
@@ -2122,66 +2123,72 @@ export default function RaidManage() {
       )}
 
       {cutModeSelectorOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-            <div className="bg-white rounded-2xl shadow-lg w-[420px] max-w-[90vw] p-5">
-            <div className="text-base font-bold mb-1">분배 방식 선택</div>
-            <p className="text-xs text-gray-600 mb-4">
-                해당 레이드의 분배 방식을 선택해 주세요.
-            </p>
-
-            <div className="flex gap-3 mb-3">
-                <button
-                type="button"
-                onClick={() => setSelectedCutMode("ITEM")}
-                className={`flex-1 px-3 py-2 rounded-lg border text-sm ${
-                    selectedCutMode === "ITEM"
-                    ? "border-blue-600 bg-blue-50 text-blue-700"
-                    : "border-gray-300 bg-white text-gray-700"
-                }`}
-                >
-                혈원 분배
-                </button>
-                <button
-                type="button"
-                onClick={() => setSelectedCutMode("TREASURY")}
-                className={`flex-1 px-3 py-2 rounded-lg border text-sm ${
-                    selectedCutMode === "TREASURY"
-                    ? "border-blue-600 bg-blue-50 text-blue-700"
-                    : "border-gray-300 bg-white text-gray-700"
-                }`}
-                >
-                혈비 귀속
-                </button>
-            </div>
-
-            <p className="text-[11px] text-red-500 mb-4">
-                혈원 분배로 저장한 뒤 나중에 혈비 귀속으로 변경하려고 하면
-                <br />
-                판매 정보와 분배 정보가 사라질 수 있으니 주의해주세요.
-            </p>
-
+        <Modal
+          open={cutModeSelectorOpen}
+          onClose={() => {
+            setCutModeSelectorOpen(false);
+            setPendingCutBossId(null);
+          }}
+          title="분배 방식 선택"
+          maxWidth="max-w-[420px]"
+          footer={
             <div className="flex justify-end gap-2">
-                <button
+              <button
                 type="button"
-                className="px-3 py-1 text-xs rounded border border-gray-300 hover:bg-gray-50"
+                className="px-3 py-1 text-xs rounded border border-white/10 text-white/80 hover:bg-white/10"
                 onClick={() => {
-                    setCutModeSelectorOpen(false);
-                    setPendingCutBossId(null);
+                  setCutModeSelectorOpen(false);
+                  setPendingCutBossId(null);
                 }}
-                >
+              >
                 취소
-                </button>
-                <button
+              </button>
+              <button
                 type="button"
-                className="px-3 py-1 text-xs rounded bg-gray-800 text-white hover:bg-black"
+                className="px-3 py-1 text-xs rounded bg-white/15 text-white hover:bg-white/20"
                 onClick={confirmCutWithMode}
-                >
+              >
                 저장
-                </button>
+              </button>
             </div>
-            </div>
-        </div>
-        )}
+          }
+        >
+          <p className="text-xs text-white/70 mb-4">
+            해당 레이드의 분배 방식을 선택해 주세요.
+          </p>
+
+          <div className="flex gap-3 mb-3">
+            <button
+              type="button"
+              onClick={() => setSelectedCutMode("ITEM")}
+              className={`flex-1 px-3 py-2 rounded-lg border text-sm ${
+                selectedCutMode === "ITEM"
+                  ? "border-blue-400 bg-blue-500/20 text-blue-100"
+                  : "border-white/10 bg-white/5 text-white/80"
+              }`}
+            >
+              혈원 분배
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedCutMode("TREASURY")}
+              className={`flex-1 px-3 py-2 rounded-lg border text-sm ${
+                selectedCutMode === "TREASURY"
+                  ? "border-blue-400 bg-blue-500/20 text-blue-100"
+                  : "border-white/10 bg-white/5 text-white/80"
+              }`}
+            >
+              혈비 귀속
+            </button>
+          </div>
+
+          <p className="text-[11px] text-rose-300">
+            혈원 분배로 저장한 뒤 나중에 혈비 귀속으로 변경하려고 하면
+            <br />
+            판매 정보와 분배 정보가 사라질 수 있으니 주의해주세요.
+          </p>
+        </Modal>
+      )}
 
         {/* OCR 스크린샷 모달 */}
         {ocrModalOpen && (

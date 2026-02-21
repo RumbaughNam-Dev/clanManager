@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: light; }
+:root { color-scheme: dark; }
 html, body, #root { height: 100%; }
 body { @apply bg-slate-50 text-slate-900; }
 
@@ -22,3 +22,12 @@ body { @apply bg-slate-50 text-slate-900; }
    overscroll-behavior: none;
    height: 100dvh; /* 모바일 브라우저에서 높이 고정 */
  }
+
+/* Dark theme date picker icon */
+input[type="date"] {
+  color-scheme: dark;
+}
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1) brightness(1.2);
+  opacity: 0.9;
+}
