@@ -149,25 +149,26 @@ export default function MobileLogin({ onGoSignup }: Props) {
           title="비밀번호 변경"
           maxWidth="max-w-[420px]"
         >
-          <p className="text-sm text-white/70 mb-3">
+          <div className="text-[1em]">
+          <p className="text-[0.9em] text-white/70 mb-4">
             기본 비밀번호(1234)로 로그인했습니다. 반드시 새 비밀번호로 변경하세요.
           </p>
-          <div className="space-y-3">
+          <div className="space-y-4">
             <div>
-              <label className="block text-sm mb-1 text-white/70">새 비밀번호</label>
+              <label className="block text-[0.85em] mb-1 text-white/70">새 비밀번호</label>
               <input
                 type="password"
-                className="w-full ui-input"
+                className="w-full ui-input text-[1em]"
                 value={newPw}
                 onChange={(e) => setNewPw(e.target.value)}
                 placeholder="새 비밀번호"
               />
             </div>
             <div>
-              <label className="block text-sm mb-1 text-white/70">비밀번호 확인</label>
+              <label className="block text-[0.85em] mb-1 text-white/70">비밀번호 확인</label>
               <input
                 type="password"
-                className="w-full ui-input"
+                className="w-full ui-input text-[1em]"
                 value={newPwConfirm}
                 onChange={(e) => setNewPwConfirm(e.target.value)}
                 placeholder="비밀번호 확인"
@@ -177,16 +178,17 @@ export default function MobileLogin({ onGoSignup }: Props) {
           <div className="mt-4 flex justify-end gap-2">
             <button
               onClick={() => setMustChange(false)}
-              className="px-3 py-1.5 rounded-lg border border-white/10 text-white/80 hover:bg-white/10 text-sm"
+              className="px-4 py-2 rounded-lg border border-white/10 text-white/80 hover:bg-white/10 text-[0.9em]"
             >
               취소
             </button>
             <button
               onClick={changePassword}
-              className="px-3 py-1.5 rounded-lg bg-white/15 text-white text-sm hover:bg-white/20"
+              className="px-4 py-2 rounded-lg bg-white/15 text-white text-[0.9em] hover:bg-white/20"
             >
               변경
             </button>
+          </div>
           </div>
         </Modal>
       )}
