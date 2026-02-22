@@ -42,7 +42,7 @@ export default function Modal({
   };
 
   return (
-    <div className="fixed inset-0 z-[1000] text-white">
+    <div className="fixed inset-0 z-[1000] text-white flex items-center justify-center px-4 py-6">
       {/* Overlay */}
       <div
         className="absolute inset-0 bg-black/55 backdrop-blur-sm"
@@ -53,7 +53,7 @@ export default function Modal({
 
       {/* Content 래퍼 */}
       <div
-        className={`relative w-[92%] max-w-5xl mx-auto my-10 rounded-2xl border border-white/10 bg-gradient-to-b from-slate-900/90 to-slate-950/90 shadow-[0_20px_60px_rgba(0,0,0,0.45)] ${maxWidth ?? ""}`}
+        className={`relative w-[92%] max-w-5xl rounded-2xl border border-white/10 bg-gradient-to-b from-slate-900/90 to-slate-950/90 shadow-[0_20px_60px_rgba(0,0,0,0.45)] ${maxWidth ?? ""}`}
       >
         <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
           <h2 className="font-semibold text-white">{title}</h2>

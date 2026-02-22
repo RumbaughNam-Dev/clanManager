@@ -2,6 +2,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useAuth } from "../../contexts/AuthContext";
 import { postJSON } from "@/lib/http";
+import Modal from "@/components/common/Modal";
 
 type Props = {
   onGoSignup?: () => void;
@@ -152,48 +153,52 @@ export default function Login({ onGoSignup }: Props) {
 
       {/* ✅ 비밀번호 변경 팝업 */}
       {mustChange && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-xl w-80 space-y-4 shadow-lg">
-            <h2 className="text-lg font-bold">비밀번호 변경</h2>
-            <p className="text-sm text-gray-600">
-              기본 비밀번호(1234)로 로그인했습니다. 반드시 새 비밀번호로 변경하세요.
-            </p>
+        <Modal
+          open={mustChange}
+          onClose={() => setMustChange(false)}
+          title="비밀번호 변경"
+          maxWidth="max-w-[420px]"
+        >
+          <p className="text-sm text-white/70 mb-3">
+            기본 비밀번호(1234)로 로그인했습니다. 반드시 새 비밀번호로 변경하세요.
+          </p>
+          <div className="space-y-3">
             <div>
-              <label className="block text-sm mb-1">새 비밀번호</label>
+              <label className="block text-sm mb-1 text-white/70">새 비밀번호</label>
               <input
                 type="password"
-                className="w-full border rounded-lg px-3 py-2"
+                className="w-full ui-input"
                 value={newPw}
                 onChange={(e) => setNewPw(e.target.value)}
                 placeholder="새 비밀번호"
               />
             </div>
             <div>
-              <label className="block text-sm mb-1">비밀번호 확인</label>
+              <label className="block text-sm mb-1 text-white/70">비밀번호 확인</label>
               <input
                 type="password"
-                className="w-full border rounded-lg px-3 py-2"
+                className="w-full ui-input"
                 value={newPwConfirm}
                 onChange={(e) => setNewPwConfirm(e.target.value)}
                 placeholder="비밀번호 확인"
               />
             </div>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setMustChange(false)}
-                className="px-3 py-1.5 rounded-lg bg-gray-200 text-gray-700 text-sm"
-              >
-                취소
-              </button>
-              <button
-                onClick={changePassword}
-                className="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-sm"
-              >
-                변경
-              </button>
-            </div>
           </div>
-        </div>
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              onClick={() => setMustChange(false)}
+              className="px-3 py-1.5 rounded-lg border border-white/10 text-white/80 hover:bg-white/10 text-sm"
+            >
+              취소
+            </button>
+            <button
+              onClick={changePassword}
+              className="px-3 py-1.5 rounded-lg bg-white/15 text-white text-sm hover:bg-white/20"
+            >
+              변경
+            </button>
+          </div>
+        </Modal>
       )}
     </div>
   );
