@@ -3,6 +3,7 @@ import { postJSON } from "@/lib/http";
 import type { BossDto } from "../../types";
 
 import BossCutManageModal from "@/components/modals/BossCutManageModal";
+import Modal from "@/components/common/Modal";
 import CutModal from "@/screens/DashBoard/CutModal";
 import { createPortal } from "react-dom";
 
@@ -1810,68 +1811,67 @@ export default function LoggedInDashboard({
 
       {/* ── 디코 보스탐 가져오기 모달 ── */}
       {importOpen && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-xl p-4 w-[600px] max-w-[90vw]">
-            <h3 className="text-lg font-semibold mb-2">디코 보스탐 정보 가져오기</h3>
-            <textarea
-              className="w-full border rounded p-2 text-sm font-mono h-64"
-              value={importText}
-              onChange={(e) => setImportText(e.target.value)}
-              placeholder={`예)\n14:32 녹샤 (미입력0회)\n14:32 서드 (미입력0회)\n...`}
-            />
-            <div className="flex justify-end gap-2 mt-3">
-              <button className="px-3 py-2 rounded-xl border hover:bg-slate-100" onClick={() => setImportOpen(false)}>
-                취소
-              </button>
-              <button
-                className="px-3 py-2 rounded-xl bg-slate-900 text-white hover:opacity-90"
-                onClick={async () => {
-                  try {
-                    await postJSON("/v1/dashboard/import-discord", { text: importText });
-                    alert("보스탐 데이터가 반영되었습니다.");
-                    setImportOpen(false);
-                    await loadBosses();
-                    onForceRefresh?.();
-                  } catch (e: any) {
-                    alert(e?.message ?? "업로드 실패");
-                  }
-                }}
-              >
-                저장
-              </button>
-            </div>
+        <Modal
+          open={importOpen}
+          onClose={() => setImportOpen(false)}
+          title="디코 보스탐 정보 가져오기"
+          maxWidth="max-w-[600px]"
+        >
+          <textarea
+            className="w-full border border-white/10 bg-white/5 rounded p-2 text-sm font-mono h-64 text-white/85 placeholder:text-white/40"
+            value={importText}
+            onChange={(e) => setImportText(e.target.value)}
+            placeholder={`예)\n14:32 녹샤 (미입력0회)\n14:32 서드 (미입력0회)\n...`}
+          />
+          <div className="flex justify-end gap-2 mt-3">
+            <button className="px-3 py-2 rounded-xl border border-white/10 hover:bg-white/10" onClick={() => setImportOpen(false)}>
+              취소
+            </button>
+            <button
+              className="px-3 py-2 rounded-xl bg-white/15 text-white hover:bg-white/20"
+              onClick={async () => {
+                try {
+                  await postJSON("/v1/dashboard/import-discord", { text: importText });
+                  alert("보스탐 데이터가 반영되었습니다.");
+                  setImportOpen(false);
+                  await loadBosses();
+                  onForceRefresh?.();
+                } catch (e: any) {
+                  alert(e?.message ?? "업로드 실패");
+                }
+              }}
+            >
+              저장
+            </button>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* ── 디코 보스탐 공유 모달 ── */}
       {shareOpen && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center" aria-modal="true" role="dialog">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setShareOpen(false)} />
-          <div className="relative z-[1001] w-[90vw] max-w-[520px] rounded-2xl bg-white shadow-xl border p-4 flex flex-col">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-base font-semibold">디코 보스탐 공유</h3>
-              <button type="button" className="px-2 py-1 rounded hover:bg-slate-100" onClick={() => setShareOpen(false)}>×</button>
-            </div>
+        <Modal
+          open={shareOpen}
+          onClose={() => setShareOpen(false)}
+          title="디코 보스탐 공유"
+          maxWidth="max-w-[520px]"
+        >
+          <textarea className="flex-1 w-full border border-white/10 bg-white/5 rounded p-2 text-sm font-mono resize-none text-white/85" rows={15} readOnly value={shareText} />
 
-            <textarea className="flex-1 w-full border rounded p-2 text-sm font-mono resize-none" rows={15} readOnly value={shareText} />
-
-            <div className="flex justify-end gap-2 mt-3">
-              <button
-                type="button"
-                className="px-3 py-2 rounded-xl bg-slate-900 text-white hover:opacity-90"
-                onClick={() => {
-                  navigator.clipboard.writeText(shareText).then(() => alert("복사 완료!"));
-                }}
-              >
-                복사
-              </button>
-              <button type="button" className="px-3 py-2 rounded-xl border hover:bg-slate-100" onClick={() => setShareOpen(false)}>
-                닫기
-              </button>
-            </div>
+          <div className="flex justify-end gap-2 mt-3">
+            <button
+              type="button"
+              className="px-3 py-2 rounded-xl bg-white/15 text-white hover:bg-white/20"
+              onClick={() => {
+                navigator.clipboard.writeText(shareText).then(() => alert("복사 완료!"));
+              }}
+            >
+              복사
+            </button>
+            <button type="button" className="px-3 py-2 rounded-xl border border-white/10 hover:bg-white/10" onClick={() => setShareOpen(false)}>
+              닫기
+            </button>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* ── 보스 컷 관리 모달 ── */}
