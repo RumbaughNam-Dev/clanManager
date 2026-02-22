@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { postJSON } from "@/lib/http";
 import type { BossDto } from "../../types";
+import { useAuth } from "@/contexts/AuthContext";
 
 import BossCutManageModal from "@/components/modals/BossCutManageModal";
 import Modal from "@/components/common/Modal";
@@ -18,6 +19,8 @@ const DAY = 24 * 60 * MIN;
 const ALERT_THRESHOLDS = [5 * MIN, 1 * MIN] as const;
 // 임박(5분 이내) 하이라이트
 const HIGHLIGHT_MS = 5 * MIN;
+const WARN_10_MS = 10 * MIN;
+const WARN_15_MS = 15 * MIN;
 // 비고정: 지남 유예(파랑 유지) 5분
 const OVERDUE_GRACE_MS = 10 * MIN;
 
@@ -30,6 +33,8 @@ const MISSED_WARN_MS = 3 * MIN;
 /** 배지 오버레이 위치(카드 기준 비율) — 요구 반영: 우상단 테두리 겹치기 */
 const BADGE_LEFT = "80%";
 const BADGE_TOP  = "33.333%";
+
+const OVERDUE_STATE_KEY = "overdueStateMap";
 
 // ── 초성 검색 유틸 ──
 const CHO = ["ㄱ","ㄲ","ㄴ","ㄷ","ㄸ","ㄹ","ㅁ","ㅂ","ㅃ","ㅅ","ㅆ","ㅇ","ㅈ","ㅉ","ㅊ","ㅋ","ㅌ","ㅍ","ㅎ"];
@@ -112,6 +117,14 @@ function fmtHMS(ms: number): string | null {
   const m = Math.floor((totalSec % 3600) / 60);
   const s = totalSec % 60;
   return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+function fmtElapsedLabel(ms: number): string {
+  const t = Math.max(0, Math.floor(Math.abs(ms) / 1000));
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const s = t % 60;
+  if (h > 0) return `${h}시간 ${m}분 ${s}초 지남`;
+  return `${m}분 ${s}초 지남`;
 }
 function fmtDaily(genTime: unknown) {
   const n = genTime == null ? NaN : Number(genTime);
@@ -285,6 +298,7 @@ export default function LoggedInDashboard({
   refreshTick,
   onForceRefresh,
 }: { refreshTick?: number; onForceRefresh?: () => void }) {
+  const { user } = useAuth();
 
   /** 서버 데이터 */
   const [trackedRaw, setTrackedRaw] = useState<BossDto[]>([]);
@@ -307,6 +321,29 @@ export default function LoggedInDashboard({
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   // 지남 유지 상태: 보스별 지남 시각(dueAt)과 유지 마감 시각(holdUntil)을 저장
   const overdueStateRef = useRef<Map<string, { dueAt: number; holdUntil: number }>>(new Map());
+  const persistOverdueState = () => {
+    try {
+      const obj: Record<string, { dueAt: number; holdUntil: number }> = {};
+      overdueStateRef.current.forEach((v, k) => { obj[k] = v; });
+      localStorage.setItem(OVERDUE_STATE_KEY, JSON.stringify(obj));
+    } catch {}
+  };
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(OVERDUE_STATE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Record<string, { dueAt: number; holdUntil: number }>;
+      const now = Date.now();
+      const map = new Map<string, { dueAt: number; holdUntil: number }>();
+      Object.entries(parsed).forEach(([k, v]) => {
+        if (v && typeof v.dueAt === "number" && typeof v.holdUntil === "number" && now <= v.holdUntil) {
+          map.set(k, v);
+        }
+      });
+      overdueStateRef.current = map;
+    } catch {}
+  }, []);
 
   // ⬇️ 추가: 액션 후 억제 상태(끝나는 ms) 저장
   const actionSilenceRef = useRef<Map<string, number>>(new Map());
@@ -698,10 +735,21 @@ export default function LoggedInDashboard({
     // 1) 지금 막 지남하거나 지남 상태라면: 지남 시각(dueAt) 고정하고 10분 유지
     if (diff <= 0) {
       const dueAt = st?.dueAt ?? nextMs; // 지남 시각 고정
-      const holdUntil = now + OVERDUE_GRACE_MS; // 앞으로 10분 유지
+      const holdUntil = st?.holdUntil ?? (dueAt + OVERDUE_GRACE_MS);
       stateMap.set(b.id, { dueAt, holdUntil });
-      // 경과시간을 음수로 리턴 (절댓값이 계속 커짐)
-      return -(now - dueAt);
+      persistOverdueState();
+      if (now <= holdUntil) {
+        return -(now - dueAt);
+      }
+      // 10분 지난 뒤: 다음 젠 예상으로 이동
+      stateMap.delete(b.id);
+      persistOverdueState();
+      const respawnMin = Number(b.respawn ?? 0);
+      if (!Number.isFinite(respawnMin) || respawnMin <= 0) return Number.POSITIVE_INFINITY;
+      const step = respawnMin * 60 * 1000;
+      const k = Math.max(1, Math.ceil((now - dueAt) / step));
+      const advancedNext = dueAt + k * step;
+      return advancedNext - now;
     }
 
     // 2) 서버 갱신으로 nextMs가 미래로 밀려도, 유지 중이면 경과시간을 계속 키워서 보여줌
@@ -980,17 +1028,26 @@ export default function LoggedInDashboard({
     const now = Date.now();
     const silenced = isSilenced(b.id, now);            // ⬅️ 추가
     const isSoon = remain > 0 && remain <= HIGHLIGHT_MS;                 // 5분 이내
+    const isWarn10 = remain > HIGHLIGHT_MS && remain <= WARN_10_MS;       // 10분 이내
+    const isWarn15 = remain > WARN_10_MS && remain <= WARN_15_MS;         // 15분 이내
     const overdueKeep = remain < 0 && remain >= -OVERDUE_GRACE_MS;       // 지남~10분 유예
     const shouldBlink = !silenced && (isSoon || overdueKeep);
     const blinkCls = shouldBlink
       ? "animate-blink border-2 border-rose-400 bg-rose-500/15"
+      : isWarn10
+      ? "border border-amber-400/80 bg-amber-500/10"
+      : isWarn15
+      ? "border border-yellow-300/80 bg-yellow-500/10"
       : "border border-white/10 bg-white/5";
 
     const canDaze = !!b.isRandom;
     const dazeCount = Number((b as any)?.dazeCount ?? 0);
     const missCount = computeEffectiveMiss(b);
 
-    const afterLabel = remain < 0 ? (Math.abs(remain) <= OVERDUE_GRACE_MS ? "지남" : "지남") : "뒤 예상";
+    const afterLabel = remain < 0 ? "지남" : "뒤 예상";
+    const timeLabel = remain < 0
+      ? fmtElapsedLabel(remain)
+      : (hms == null ? "미입력" : `${hms} ${afterLabel}`);
 
     return (
       <div key={b.id} className={`relative overflow-visible z-[40] hover:z-[90] rounded-xl shadow-sm p-3 text-sm ${blinkCls}`}>
@@ -1012,7 +1069,7 @@ export default function LoggedInDashboard({
 
         <div className="font-medium text-[13px] whitespace-nowrap overflow-visible text-white">{b.name}</div>
         <div className="text-xs text-white/60 whitespace-nowrap">
-          {hms == null ? "미입력" : (<>{hms}<span className="ml-1">{afterLabel}</span></>)}
+          {timeLabel}
         </div>
 
         <div className="mt-1 grid grid-cols-2 gap-1 items-center">
@@ -1243,6 +1300,7 @@ export default function LoggedInDashboard({
   async function instantCut(b: BossDto) {
     try {
       await postJSON(`/v1/dashboard/bosses/${b.id}/cut`, { cutAtIso: new Date().toString(), mode: "TREASURY", items: [], participants: [] });
+      try { if (voiceEnabled) await speakKorean(`${b.name} 컷 처리되었습니다.`); } catch {}
 
       // ⬇️ 추가: 지남 유지/경고 상태 해제 + 10분 억제 ON
       overdueStateRef.current.delete(b.id);
@@ -1260,15 +1318,10 @@ export default function LoggedInDashboard({
   // 멍
   async function addDaze(b: BossDto) {
     try {
-      // 최근 컷 타임라인 조회
-      const tl = await getTimelineIdForBossName(b.name);
-      if (!tl?.id) {
-        alert("해당 보스의 최근 컷 타임라인을 찾을 수 없습니다.");
-        return;
-      }
-
-      // 멍 기록
-      await postJSON(`/v1/boss-timelines/${tl.id}/daze`, { atIso: new Date().toString() });
+      // 멍 기록 (백엔드가 타임라인 생성/갱신)
+      const clanId = user?.clanId ?? localStorage.getItem("clanId");
+      await postJSON(`/v1/dashboard/bosses/${b.id}/daze`, { atIso: new Date().toString(), clanId: clanId ?? undefined });
+      try { if (voiceEnabled) await speakKorean(`${b.name} 멍 처리되었습니다.`); } catch {}
 
       // ⬇️ 컷/멍 직후 처리: 지남 유지/알림 상태 정리 + 10분 억제 ON
       overdueStateRef.current.delete(b.id);                 // 0분 0초 카운트업(지남 유지) 즉시 해제
@@ -1666,6 +1719,8 @@ export default function LoggedInDashboard({
               const remain = fixedRemainMs(fb, now);
               const overdueKeep = remain < 0 && remain >= -OVERDUE_GRACE_MS;
               const soon = remain > 0 && remain <= HIGHLIGHT_MS;
+              const warn10 = remain > HIGHLIGHT_MS && remain <= WARN_10_MS;
+              const warn15 = remain > WARN_10_MS && remain <= WARN_15_MS;
               const afterGrace = remain <= -OVERDUE_GRACE_MS;
               const isCaught = fixedIsCaughtCycle(fb, now);
               const postLast = isPostLastWindow(now);
@@ -1674,6 +1729,10 @@ export default function LoggedInDashboard({
               const isRed = soon || overdueKeep;
               const wrapClass = isRed
                 ? "relative z-[510] shrink-0 w-[220px] rounded-xl border border-rose-400/70 shadow-sm p-3 text-sm ring-2 ring-rose-400 bg-rose-500/15 animate-blink"
+                : warn10
+                ? "relative z-[510] shrink-0 w-[220px] rounded-xl border border-amber-400/80 shadow-sm p-3 text-sm ring-2 ring-amber-400/60 bg-amber-500/10"
+                : warn15
+                ? "relative z-[510] shrink-0 w-[220px] rounded-xl border border-yellow-300/80 shadow-sm p-3 text-sm ring-2 ring-yellow-300/60 bg-yellow-500/10"
                 : isBlue
                 ? "relative z-[510] shrink-0 w-[220px] rounded-xl border border-sky-300/60 shadow-sm p-3 text-sm ring-2 ring-sky-300 bg-sky-500/10"
                 : "relative z-[510] shrink-0 w-[220px] rounded-xl border border-white/10 shadow-sm p-3 text-sm bg-white/5";

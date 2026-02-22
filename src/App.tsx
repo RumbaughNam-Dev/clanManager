@@ -61,9 +61,10 @@ export default function App() {
   }, [page]);
 
   useEffect(() => {
-    const publicPages: PageKey[] = ["dashboard", "login", "signup", "feedback"];
+    const publicPages: PageKey[] = ["dashboard", "login", "signup"];
     if (!user && !publicPages.includes(page)) {
-      setPage("dashboard");
+      alert("로그인 페이지로 이동합니다.");
+      setPage("login");
     }
   }, [user, page]);
 
@@ -107,7 +108,7 @@ export default function App() {
   const effectiveRole = (role ?? "USER") as Role;
 
   const guardAndNav = (next: PageKey) => {
-    const publicPages: PageKey[] = ["dashboard", "login", "signup", "feedback"];
+    const publicPages: PageKey[] = ["dashboard", "login", "signup"];
     if (!user && !publicPages.includes(next)) {
       alert("로그인 페이지로 이동합니다.");
       setPage("login");

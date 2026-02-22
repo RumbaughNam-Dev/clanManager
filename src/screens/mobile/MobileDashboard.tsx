@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { postJSON } from "@/lib/http";
 import { ensurePushSubscription } from "@/lib/push";
+import { useAuth } from "@/contexts/AuthContext";
 import type { BossDto } from "../../types";
 
 /** 시간 상수 */
@@ -9,6 +10,9 @@ const MIN = 60 * MS;
 const HIGHLIGHT_MS = 5 * MIN;
 const OVERDUE_GRACE_MS = 10 * MIN;
 const ALERT_WIN_MS = 1000;
+const WARN_10_MS = 10 * MIN;
+const WARN_15_MS = 15 * MIN;
+const OVERDUE_STATE_KEY = "overdueStateMap";
 
 /** 다음 젠(ms) 계산: tracked(=nextSpawnAt 우선) / forgotten(=lastCutAt+respawn) */
 function nextMsFor(b: BossDto, now = Date.now()): number {
@@ -29,14 +33,79 @@ function nextMsFor(b: BossDto, now = Date.now()): number {
   return last + k * step;
 }
 
-function remainLabel(ms: number) {
-  if (!Number.isFinite(ms)) return { text: "미입력", tone: "normal" as const };
-  const diff = ms - Date.now();
-  if (diff <= 0 && diff >= -OVERDUE_GRACE_MS) return { text: "지남(유예)", tone: "soon" as const };
-  if (diff < -OVERDUE_GRACE_MS) return { text: "지남", tone: "past" as const };
-  const m = Math.floor(diff / 60000);
-  const s = Math.ceil((diff % 60000) / 1000);
-  return { text: `${m}분 ${String(s).padStart(2, "0")}초 뒤 젠`, tone: diff <= HIGHLIGHT_MS ? "soon" as const : "normal" as const };
+function fmtHMSFromDiff(diffMs: number) {
+  const t = Math.max(0, Math.floor(Math.abs(diffMs) / 1000));
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const s = t % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function remainLabelFromDiff(diff: number) {
+  if (!Number.isFinite(diff)) return { text: "미입력", tone: "normal" as const };
+  if (diff <= 0) {
+    const hms = fmtHMSFromDiff(diff);
+    return { text: `${hms} 지남`, tone: diff >= -OVERDUE_GRACE_MS ? "soon" as const : "past" as const };
+  }
+  const hms = fmtHMSFromDiff(diff);
+  if (diff <= HIGHLIGHT_MS) return { text: `${hms} 뒤 젠`, tone: "soon" as const };
+  if (diff <= WARN_10_MS) return { text: `${hms} 뒤 젠`, tone: "warn10" as const };
+  if (diff <= WARN_15_MS) return { text: `${hms} 뒤 젠`, tone: "warn15" as const };
+  return { text: `${hms} 뒤 젠`, tone: "normal" as const };
+}
+
+function remainingMsForMobile(
+  b: BossDto,
+  now = Date.now(),
+  stateRef?: React.MutableRefObject<Map<string, { dueAt: number; holdUntil: number }>>
+): number {
+  const next = nextMsFor(b, now);
+  if (!Number.isFinite(next)) return Number.POSITIVE_INFINITY;
+
+  const diff = next - now;
+  if (!stateRef) return diff;
+  const stateMap = stateRef.current;
+  const st = stateMap.get(b.id);
+
+  // 막 지남 or 지남 상태: dueAt 고정하고 10분 유지
+  if (diff <= 0) {
+    const dueAt = st?.dueAt ?? next;
+    const holdUntil = st?.holdUntil ?? (dueAt + OVERDUE_GRACE_MS);
+    stateMap.set(b.id, { dueAt, holdUntil });
+    if (stateRef) {
+      try {
+        const obj: Record<string, { dueAt: number; holdUntil: number }> = {};
+        stateMap.forEach((v, k) => { obj[k] = v; });
+        localStorage.setItem(OVERDUE_STATE_KEY, JSON.stringify(obj));
+      } catch {}
+    }
+    if (now <= holdUntil) {
+      return -(now - dueAt);
+    }
+    stateMap.delete(b.id);
+    if (stateRef) {
+      try {
+        const obj: Record<string, { dueAt: number; holdUntil: number }> = {};
+        stateMap.forEach((v, k) => { obj[k] = v; });
+        localStorage.setItem(OVERDUE_STATE_KEY, JSON.stringify(obj));
+      } catch {}
+    }
+    const respawnMin = Number(b.respawn ?? 0);
+    if (!Number.isFinite(respawnMin) || respawnMin <= 0) return Number.POSITIVE_INFINITY;
+    const step = respawnMin * 60 * 1000;
+    const k = Math.max(1, Math.ceil((now - dueAt) / step));
+    const advancedNext = dueAt + k * step;
+    return advancedNext - now;
+  }
+
+  // 서버에서 다음 젠이 미래로 밀려도 유지 중이면 카운트업 유지
+  if (st && now < st.holdUntil) {
+    return -(now - st.dueAt);
+  }
+
+  // 유지 종료 후 클린업
+  if (st && now >= st.holdUntil) stateMap.delete(b.id);
+  return diff;
 }
 
 function computeMissCount(b: BossDto, now = Date.now()): number {
@@ -77,7 +146,7 @@ async function latestTimelineIdForBossName(bossName: string): Promise<string | n
 }
 
 /** 즉시 컷 */
-async function instantCut(b: BossDto, onAfter?: () => void) {
+async function instantCut(b: BossDto, onAfter?: () => void, speak?: (t: string) => void) {
   try {
     await postJSON(`/v1/dashboard/bosses/${b.id}/cut`, {
       cutAtIso: new Date().toString(),
@@ -85,6 +154,7 @@ async function instantCut(b: BossDto, onAfter?: () => void) {
       items: [],
       participants: [],
     });
+    try { await speak?.(`${b.name} 컷 처리되었습니다.`); } catch {}
     onAfter?.();
   } catch (e: any) {
     alert(e?.message ?? "즉시 컷 실패");
@@ -92,14 +162,11 @@ async function instantCut(b: BossDto, onAfter?: () => void) {
 }
 
 /** 멍 */
-async function addDaze(b: BossDto, onAfter?: () => void) {
+async function addDaze(b: BossDto, onAfter?: () => void, speak?: (t: string) => void, clanId?: string | null) {
   try {
-    const tlId = await latestTimelineIdForBossName(b.name);
-    if (!tlId) {
-      alert("해당 보스의 최근 컷 타임라인을 찾을 수 없습니다.");
-      return;
-    }
-    await postJSON(`/v1/boss-timelines/${tlId}/daze`, { atIso: new Date().toString() });
+    const fallbackClanId = clanId ?? localStorage.getItem("clanId");
+    await postJSON(`/v1/dashboard/bosses/${b.id}/daze`, { atIso: new Date().toString(), clanId: fallbackClanId ?? undefined });
+    try { await speak?.(`${b.name} 멍 처리되었습니다.`); } catch {}
     onAfter?.();
   } catch {
     alert("멍 기록에 실패했습니다. 잠시 후 다시 시도해 주세요.");
@@ -107,10 +174,19 @@ async function addDaze(b: BossDto, onAfter?: () => void) {
 }
 
 export default function MobileDashboard() {
+  const { user } = useAuth();
   const [bossesTracked, setTracked] = useState<BossDto[]>([]);
   const [bossesForgotten, setForgotten] = useState<BossDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [tick, setTick] = useState(0);
+  const overdueStateRef = useRef<Map<string, { dueAt: number; holdUntil: number }>>(new Map());
+  const persistOverdueState = () => {
+    try {
+      const obj: Record<string, { dueAt: number; holdUntil: number }> = {};
+      overdueStateRef.current.forEach((v, k) => { obj[k] = v; });
+      localStorage.setItem(OVERDUE_STATE_KEY, JSON.stringify(obj));
+    } catch {}
+  };
 
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(() => {
     try {
@@ -194,23 +270,40 @@ export default function MobileDashboard() {
     });
   }, [tick, voiceEnabled, voiceVolume, bossesTracked, bossesForgotten]);
 
+  const load = async () => {
+    setLoading(true);
+    try {
+      const data = await postJSON<any>("/v1/dashboard/bosses");
+      setTracked(data.tracked ?? []);
+      setForgotten(data.forgotten ?? []);
+    } catch {
+      setTracked([]); setForgotten([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      try {
-        const data = await postJSON<any>("/v1/dashboard/bosses");
-        setTracked(data.tracked ?? []);
-        setForgotten(data.forgotten ?? []);
-      } catch {
-        setTracked([]); setForgotten([]);
-      } finally {
-        setLoading(false);
-      }
-    };
     load();
     const t1 = setInterval(load, 60_000);
     const t2 = setInterval(() => setTick(x => (x + 1) % 60), 1000); // 1초마다 남은 시간 갱신
     return () => { clearInterval(t1); clearInterval(t2); };
+  }, []);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(OVERDUE_STATE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Record<string, { dueAt: number; holdUntil: number }>;
+      const now = Date.now();
+      const map = new Map<string, { dueAt: number; holdUntil: number }>();
+      Object.entries(parsed).forEach(([k, v]) => {
+        if (v && typeof v.dueAt === "number" && typeof v.holdUntil === "number" && now <= v.holdUntil) {
+          map.set(k, v);
+        }
+      });
+      overdueStateRef.current = map;
+    } catch {}
   }, []);
 
   useEffect(() => {
@@ -242,7 +335,7 @@ export default function MobileDashboard() {
     const merged = [...bossesTracked, ...bossesForgotten];
     const seen = new Set<string>();
     const dedup = merged.filter((b) => (seen.has(b.id) ? false : (seen.add(b.id), true)));
-    return dedup.sort((a, b) => nextMsFor(a, now) - nextMsFor(b, now));
+    return dedup.sort((a, b) => remainingMsForMobile(a, now, overdueStateRef) - remainingMsForMobile(b, now, overdueStateRef));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bossesTracked, bossesForgotten, tick]);
 
@@ -278,12 +371,22 @@ export default function MobileDashboard() {
         ) : (
           <ul className="space-y-4">
             {sortedAll.map((b) => {
-              const nms = nextMsFor(b);
-              const r = remainLabel(nms);
+              const nms = remainingMsForMobile(b, Date.now(), overdueStateRef);
+              const r = remainLabelFromDiff(nms);
               const isSoon = r.tone === "soon";
+              const isWarn10 = r.tone === "warn10";
+              const isWarn15 = r.tone === "warn15";
               return (
                 <li key={b.id} className="px-[5%]">
-                  <div className={`w-full rounded-2xl shadow-sm border ${isSoon ? "ring-2 ring-rose-400 bg-rose-500/10" : "border-white/15 bg-white/5"} p-4`}>
+                  <div className={`w-full rounded-2xl shadow-sm border ${
+                    isSoon
+                      ? "ring-2 ring-rose-400 bg-rose-500/10 animate-blink"
+                      : isWarn10
+                      ? "border-amber-400/80 bg-amber-500/10"
+                      : isWarn15
+                      ? "border-yellow-300/80 bg-yellow-500/10"
+                      : "border-white/15 bg-white/5"
+                  } p-4`}>
                     <div className="flex items-center justify-between">
                       <div className="font-semibold text-[1.1em]">{b.name}</div>
                       <div className={`text-[0.85em] ${isSoon ? "text-rose-300" : "text-white/70"}`}>{r.text}</div>
@@ -297,19 +400,21 @@ export default function MobileDashboard() {
                       <div className="flex gap-3">
                         {/* 컷: 검정 버튼 */}
                         <button
-                          onClick={() => instantCut(b, undefined)}
+                          onClick={() => instantCut(b, load, voiceEnabled ? speakKorean : undefined)}
                           className="px-8 py-2.5 rounded-lg bg-black text-white text-[0.85em] border border-white/30 hover:bg-white/10 active:opacity-80"
                         >
                           컷
                         </button>
 
-                        {/* 멍: 하양 버튼 */}
-                        <button
-                          onClick={() => addDaze(b, undefined)}
-                          className="px-8 py-2.5 rounded-lg bg-white text-black text-[0.85em] hover:bg-gray-100 active:opacity-80"
-                        >
-                          멍
-                        </button>
+                        {/* 멍: 랜덤 보스만 */}
+                        {b.isRandom && (
+                          <button
+                            onClick={() => addDaze(b, load, voiceEnabled ? speakKorean : undefined, user?.clanId ?? localStorage.getItem("clanId"))}
+                            className="px-8 py-2.5 rounded-lg bg-white text-black text-[0.85em] hover:bg-gray-100 active:opacity-80"
+                          >
+                            멍
+                          </button>
+                        )}
                       </div>
                     </div>
                     <div className="mt-2 text-[0.8em] text-white/60">

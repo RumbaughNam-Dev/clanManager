@@ -95,6 +95,7 @@ const login = async (loginId: string, password: string) => {
     if (res.refreshToken) localStorage.setItem("refreshToken", res.refreshToken);
     if (res.clanName != null) localStorage.setItem("clanName", res.clanName);
     else localStorage.removeItem("clanName");
+    if (res.user?.clanId) localStorage.setItem("clanId", res.user.clanId);
   } catch {}
 
   if (res.user) {
