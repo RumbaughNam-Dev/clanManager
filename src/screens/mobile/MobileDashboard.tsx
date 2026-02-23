@@ -188,7 +188,7 @@ async function addDaze(b: BossDto, onAfter?: () => void, speak?: (t: string) => 
 }
 
 export default function MobileDashboard() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [bossesTracked, setTracked] = useState<BossDto[]>([]);
   const [bossesForgotten, setForgotten] = useState<BossDto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -230,19 +230,40 @@ export default function MobileDashboard() {
 
   const alertedRef = useRef<Set<string>>(new Set());
 
-  function speakViaApp(text: string): boolean {
+  function sendAppBridge(message: Record<string, unknown>): boolean {
     try {
-      const payload = JSON.stringify({ type: "TTS_SPEAK", text });
       if ((window as any).AppBridge?.postMessage) {
-        (window as any).AppBridge.postMessage(payload);
+        (window as any).AppBridge.postMessage(JSON.stringify(message));
         return true;
       }
+      if ((window as any).webkit?.messageHandlers?.AppBridge?.postMessage) {
+        (window as any).webkit.messageHandlers.AppBridge.postMessage(message);
+        return true;
+      }
+    } catch {}
+    return false;
+  }
+
+  function speakViaApp(text: string): boolean {
+    if (sendAppBridge({ type: "TTS_SPEAK", text })) return true;
+    try {
       if ((window as any).AndroidTTS?.speak) {
         (window as any).AndroidTTS.speak(text);
         return true;
       }
     } catch {}
     return false;
+  }
+
+  function requestPiP() {
+    if (sendAppBridge({ type: "ENTER_PIP" })) return;
+    const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+    const isIOS = /iPad|iPhone|iPod/.test(ua);
+    if (isIOS) {
+      alert("아이폰에서는 지원하지 않습니다.");
+      return;
+    }
+    alert("안드로이드 기기에서만 사용할 수 있습니다.");
   }
 
   function speakKorean(text: string): Promise<void> {
@@ -504,6 +525,33 @@ export default function MobileDashboard() {
             })}
           </ul>
         )}
+      </div>
+
+      {/* 하단 고정 버튼 영역 */}
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[92%] max-w-[520px] z-30">
+        <div className="grid grid-cols-3 gap-3">
+          <button
+            type="button"
+            onClick={requestPiP}
+            className="py-3 rounded-2xl bg-white/15 text-white font-semibold border border-white/20 hover:bg-white/20"
+          >
+            창모드
+          </button>
+          <button
+            type="button"
+            onClick={() => alert("기능 준비중입니다.")}
+            className="py-3 rounded-2xl bg-white/10 text-white/80 border border-white/10 hover:bg-white/15"
+          >
+            잡은보스관리
+          </button>
+          <button
+            type="button"
+            onClick={logout}
+            className="py-3 rounded-2xl bg-white/10 text-white/80 border border-white/10 hover:bg-white/15"
+          >
+            로그아웃
+          </button>
+        </div>
       </div>
     </div>
   );
