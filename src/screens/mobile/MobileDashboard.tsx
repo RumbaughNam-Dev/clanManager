@@ -275,16 +275,16 @@ export default function MobileDashboard() {
         speakKorean(text).catch(() => {});
       };
 
-      if (diff <= 5 * MIN && diff > 5 * MIN - ALERT_WIN_MS) {
+      if (diff <= 5 * MIN) {
         maybeSpeak("T5", `${b.name} 5분 전입니다.${countSuffix}`);
       }
-      if (diff <= 1 * MIN && diff > 1 * MIN - ALERT_WIN_MS) {
+      if (diff <= 1 * MIN) {
         maybeSpeak("T1", `${b.name} 1분 전입니다.${countSuffix}`);
       }
-      if (diff <= 0 && diff > -ALERT_WIN_MS) {
+      if (diff <= 0) {
         maybeSpeak("T0", `${b.name} 젠 시간입니다.${countSuffix}`);
       }
-      if (diff <= -5 * MIN && diff > -5 * MIN - ALERT_WIN_MS) {
+      if (diff <= -5 * MIN) {
         maybeSpeak("T5L", `${b.name} 젠 후 5분이 지났습니다. 미입력 확인해주세요.${countSuffix}`);
       }
     });
