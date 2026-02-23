@@ -20,6 +20,7 @@ import RaidManage from "./screens/RaidManage/RaidManage";
 export default function App() {
   const [page, setPage] = useState<PageKey>("dashboard");
   const { role, user, logout } = useAuth();
+  const apkUrl = `${import.meta.env.BASE_URL}clan-manager.apk`;
   const isMobile = (() => {
     const qsMobile =
       typeof window !== "undefined" &&
@@ -160,6 +161,13 @@ export default function App() {
                     {user.clanName ? ` · ${user.clanName}` : ""}
                     {` (${roleLabel(role)})`}
                   </span>
+                  <a
+                    href={apkUrl}
+                    download
+                    className="px-3 py-1.5 rounded-xl border border-white/20 hover:bg-white/10"
+                  >
+                    모바일 APK 다운로드
+                  </a>
                   <button
                     onClick={() => {
                       logout();
