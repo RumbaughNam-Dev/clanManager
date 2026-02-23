@@ -901,6 +901,8 @@ export default function LoggedInDashboard({
 
   // ──────────────── 공통 도우미 ────────────────
   function delay(ms: number) { return new Promise((res) => setTimeout(res, ms)); }
+  const speakQueueRef = useRef<Promise<void>>(Promise.resolve());
+
   function playBeep(durationMs = 300) {
     const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext;
     if (!AudioCtx) return Promise.resolve();
@@ -914,7 +916,7 @@ export default function LoggedInDashboard({
       setTimeout(() => { osc.stop(); ctx.close().finally(() => resolve()); }, durationMs);
     });
   }
-  function speakKorean(text: string): Promise<void> {
+  function speakNow(text: string): Promise<void> {
     return new Promise((resolve, reject) => {
       const ss: SpeechSynthesis | undefined = (window as any).speechSynthesis;
       if (!ss || typeof window === "undefined") return reject(new Error("speechSynthesis not available"));
@@ -935,6 +937,12 @@ export default function LoggedInDashboard({
         setTimeout(() => { if (ss.onvoiceschanged === handler) { ss.onvoiceschanged = null as any; pickVoice(); } }, 500);
       }
     });
+  }
+
+  function speakKorean(text: string): Promise<void> {
+    const job = speakQueueRef.current.then(() => speakNow(text));
+    speakQueueRef.current = job.catch(() => {});
+    return job;
   }
 
   /** 진행/미입력/임박 우선 정렬 */

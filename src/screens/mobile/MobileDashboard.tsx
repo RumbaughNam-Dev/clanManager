@@ -229,6 +229,8 @@ export default function MobileDashboard() {
   }, [voiceVolume]);
 
   const alertedRef = useRef<Set<string>>(new Set());
+  const speakQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const appTtsPendingRef = useRef<{ resolve: () => void; timeoutId: number } | null>(null);
 
   function sendAppBridge(message: Record<string, unknown>): boolean {
     try {
@@ -269,7 +271,15 @@ export default function MobileDashboard() {
   function speakKorean(text: string): Promise<void> {
     return new Promise((resolve, reject) => {
       if (speakViaApp(text)) {
-        resolve();
+        if (appTtsPendingRef.current?.timeoutId) {
+          clearTimeout(appTtsPendingRef.current.timeoutId);
+        }
+        const timeoutMs = Math.min(12000, Math.max(2500, text.length * 120));
+        const timeoutId = window.setTimeout(() => {
+          appTtsPendingRef.current = null;
+          resolve();
+        }, timeoutMs);
+        appTtsPendingRef.current = { resolve, timeoutId };
         return;
       }
       const ss: SpeechSynthesis | undefined = (window as any).speechSynthesis;
@@ -292,9 +302,17 @@ export default function MobileDashboard() {
     });
   }
 
+  function enqueueSpeak(text: string) {
+    const job = speakQueueRef.current.then(() => speakKorean(text));
+    speakQueueRef.current = job.catch(() => {});
+    return job;
+  }
+
   useEffect(() => {
     if (!voiceEnabled) return;
-    const bosses = [...bossesTracked, ...bossesForgotten];
+    const bosses = [...bossesTracked, ...bossesForgotten].filter((b, i, arr) =>
+      arr.findIndex((x) => x.id === b.id) === i
+    );
     const now = Date.now();
     bosses.forEach((b) => {
       const dueAt = nextMsFor(b, now);
@@ -312,7 +330,7 @@ export default function MobileDashboard() {
         const key = makeKey(tag);
         if (alertedRef.current.has(key)) return;
         alertedRef.current.add(key);
-        speakKorean(text).catch(() => {});
+        enqueueSpeak(text);
       };
 
       if (diff <= 5 * MIN) {
@@ -348,6 +366,41 @@ export default function MobileDashboard() {
     const t1 = setInterval(load, 60_000);
     const t2 = setInterval(() => setTick(x => (x + 1) % 60), 1000); // 1초마다 남은 시간 갱신
     return () => { clearInterval(t1); clearInterval(t2); };
+  }, []);
+
+  useEffect(() => {
+    const handleAppMessage = (msg: any) => {
+      if (!msg || typeof msg !== "object") return;
+      if (msg.type === "TTS_RESULT") {
+        if (appTtsPendingRef.current?.timeoutId) {
+          clearTimeout(appTtsPendingRef.current.timeoutId);
+        }
+        const resolve = appTtsPendingRef.current?.resolve;
+        appTtsPendingRef.current = null;
+        if (resolve) resolve();
+      }
+      if (msg.type === "PIP_RESULT") {
+        if (msg.ok === true || msg.success === true) {
+          alert("창모드로 전환되었습니다.");
+        } else {
+          const reason = msg.message || msg.error || "창모드 전환에 실패했습니다.";
+          alert(String(reason));
+        }
+      }
+    };
+    const prev = (window as any).onAppMessage;
+    (window as any).onAppMessage = handleAppMessage;
+    const listener = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      handleAppMessage(detail);
+    };
+    window.addEventListener("AppMessage", listener as EventListener);
+    return () => {
+      if ((window as any).onAppMessage === handleAppMessage) {
+        (window as any).onAppMessage = prev;
+      }
+      window.removeEventListener("AppMessage", listener as EventListener);
+    };
   }, []);
 
   useEffect(() => {
@@ -415,7 +468,7 @@ export default function MobileDashboard() {
               type="button"
               className="px-4 py-2 rounded-xl text-[0.85em] font-semibold border border-white/20 text-white/80 bg-white/5 hover:bg-white/10"
               onClick={() => {
-                speakKorean("이 버튼으로 소리를 듣고 음량을 조절해주세요.").catch(() => {});
+                enqueueSpeak("이 버튼으로 소리를 듣고 음량을 조절해주세요.");
               }}
             >
               음성 테스트
@@ -438,7 +491,7 @@ export default function MobileDashboard() {
         ) : sortedAll.length === 0 ? (
           <div className="px-[5%] py-3 text-[0.9em] text-white/60">표시할 보스가 없습니다.</div>
         ) : (
-          <ul className="space-y-4">
+          <ul className="space-y-4 pb-28">
             {sortedAll.map((b) => {
               const nms = remainingMsForMobile(b, Date.now(), overdueStateRef);
               const r = remainLabelFromDiff(nms);
@@ -476,7 +529,7 @@ export default function MobileDashboard() {
                                 clearOverdueFor(b.id);
                                 await load();
                               },
-                              voiceEnabled ? speakKorean : undefined
+                              voiceEnabled ? enqueueSpeak : undefined
                             )
                           }
                           className="px-8 py-2.5 rounded-lg bg-rose-500/80 text-white text-[0.85em] hover:bg-rose-500 active:opacity-80"
@@ -494,7 +547,7 @@ export default function MobileDashboard() {
                                   clearOverdueFor(b.id);
                                   await load();
                                 },
-                                voiceEnabled ? speakKorean : undefined,
+                                voiceEnabled ? enqueueSpeak : undefined,
                                 user?.clanId ?? localStorage.getItem("clanId")
                               )
                             }
@@ -528,8 +581,9 @@ export default function MobileDashboard() {
       </div>
 
       {/* 하단 고정 버튼 영역 */}
-      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[92%] max-w-[520px] z-30">
-        <div className="grid grid-cols-3 gap-3">
+      <div className="fixed bottom-0 left-0 right-0 z-30">
+        <div className="w-full px-[5%] py-4 bg-slate-950/95 backdrop-blur border-t border-white/10">
+          <div className="grid grid-cols-3 gap-3">
           <button
             type="button"
             onClick={requestPiP}
@@ -551,6 +605,7 @@ export default function MobileDashboard() {
           >
             로그아웃
           </button>
+          </div>
         </div>
       </div>
     </div>
