@@ -230,8 +230,27 @@ export default function MobileDashboard() {
 
   const alertedRef = useRef<Set<string>>(new Set());
 
+  function speakViaApp(text: string): boolean {
+    try {
+      const payload = JSON.stringify({ type: "TTS_SPEAK", text });
+      if ((window as any).AppBridge?.postMessage) {
+        (window as any).AppBridge.postMessage(payload);
+        return true;
+      }
+      if ((window as any).AndroidTTS?.speak) {
+        (window as any).AndroidTTS.speak(text);
+        return true;
+      }
+    } catch {}
+    return false;
+  }
+
   function speakKorean(text: string): Promise<void> {
     return new Promise((resolve, reject) => {
+      if (speakViaApp(text)) {
+        resolve();
+        return;
+      }
       const ss: SpeechSynthesis | undefined = (window as any).speechSynthesis;
       if (!ss || typeof window === "undefined") return reject(new Error("speechSynthesis not available"));
       const utter = new SpeechSynthesisUtterance(text);
