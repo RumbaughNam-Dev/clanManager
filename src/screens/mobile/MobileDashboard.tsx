@@ -13,6 +13,8 @@ const ALERT_WIN_MS = 1000;
 const WARN_10_MS = 10 * MIN;
 const WARN_15_MS = 15 * MIN;
 const OVERDUE_STATE_KEY = "overdueStateMap";
+const VOICE_DEDUP_KEY = "mobileVoiceDedup";
+const VOICE_DEDUP_TTL = 5000;
 
 /** 다음 젠(ms) 계산: tracked(=nextSpawnAt 우선) / forgotten(=lastCutAt+respawn) */
 function nextMsFor(b: BossDto, now = Date.now()): number {
@@ -229,6 +231,7 @@ export default function MobileDashboard() {
   }, [voiceVolume]);
 
   const alertedRef = useRef<Set<string>>(new Set());
+  const recentSpeakRef = useRef<Map<string, number>>(new Map());
   const speakQueueRef = useRef<Promise<void>>(Promise.resolve());
   const appTtsPendingRef = useRef<{ resolve: () => void; timeoutId: number } | null>(null);
 
@@ -308,6 +311,21 @@ export default function MobileDashboard() {
     return job;
   }
 
+  function shouldSpeak(key: string) {
+    const now = Date.now();
+    const last = recentSpeakRef.current.get(key);
+    if (last && now - last < VOICE_DEDUP_TTL) return false;
+    recentSpeakRef.current.set(key, now);
+    try {
+      const obj: Record<string, number> = {};
+      recentSpeakRef.current.forEach((v, k) => {
+        if (now - v < VOICE_DEDUP_TTL * 2) obj[k] = v;
+      });
+      sessionStorage.setItem(VOICE_DEDUP_KEY, JSON.stringify(obj));
+    } catch {}
+    return true;
+  }
+
   useEffect(() => {
     if (!voiceEnabled) return;
     const bosses = [...bossesTracked, ...bossesForgotten].filter((b, i, arr) =>
@@ -329,6 +347,7 @@ export default function MobileDashboard() {
       const maybeSpeak = (tag: string, text: string) => {
         const key = makeKey(tag);
         if (alertedRef.current.has(key)) return;
+        if (!shouldSpeak(key)) return;
         alertedRef.current.add(key);
         enqueueSpeak(text);
       };
@@ -343,10 +362,25 @@ export default function MobileDashboard() {
         maybeSpeak("T0", `${b.name} 젠 시간입니다.${countSuffix}`);
       }
       if (diff <= -5 * MIN) {
-        maybeSpeak("T5L", `${b.name} 젠 후 5분이 지났습니다. 미입력 확인해주세요.${countSuffix}`);
+        const tail = missCount > 0 ? " 미입력 확인해주세요." : "";
+        maybeSpeak("T5L", `${b.name} 젠 후 5분이 지났습니다.${tail}${countSuffix}`);
       }
     });
   }, [tick, voiceEnabled, voiceVolume, bossesTracked, bossesForgotten]);
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(VOICE_DEDUP_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Record<string, number>;
+      const now = Date.now();
+      const map = new Map<string, number>();
+      Object.entries(parsed).forEach(([k, v]) => {
+        if (typeof v === "number" && now - v < VOICE_DEDUP_TTL * 2) map.set(k, v);
+      });
+      recentSpeakRef.current = map;
+    } catch {}
+  }, []);
 
   const load = async () => {
     setLoading(true);
