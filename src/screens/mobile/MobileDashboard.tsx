@@ -234,6 +234,7 @@ export default function MobileDashboard() {
   const recentSpeakRef = useRef<Map<string, number>>(new Map());
   const speakQueueRef = useRef<Promise<void>>(Promise.resolve());
   const appTtsPendingRef = useRef<{ resolve: () => void; timeoutId: number } | null>(null);
+  const lastSpeakRef = useRef<{ text: string; at: number } | null>(null);
 
   function sendAppBridge(message: Record<string, unknown>): boolean {
     try {
@@ -260,6 +261,10 @@ export default function MobileDashboard() {
     return false;
   }
 
+  function hasAppTtsBridge() {
+    return !!((window as any).AppBridge?.postMessage || (window as any).webkit?.messageHandlers?.AppBridge?.postMessage || (window as any).AndroidTTS?.speak);
+  }
+
   function requestPiP() {
     if (sendAppBridge({ type: "ENTER_PIP" })) return;
     const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
@@ -273,6 +278,15 @@ export default function MobileDashboard() {
 
   function speakKorean(text: string): Promise<void> {
     return new Promise((resolve, reject) => {
+      const last = lastSpeakRef.current;
+      const now = Date.now();
+      if (last && last.text === text && now - last.at < 1200) {
+        resolve();
+        return;
+      }
+      lastSpeakRef.current = { text, at: now };
+
+      const hasBridge = hasAppTtsBridge();
       if (speakViaApp(text)) {
         if (appTtsPendingRef.current?.timeoutId) {
           clearTimeout(appTtsPendingRef.current.timeoutId);
@@ -283,6 +297,11 @@ export default function MobileDashboard() {
           resolve();
         }, timeoutMs);
         appTtsPendingRef.current = { resolve, timeoutId };
+        return;
+      }
+      if (hasBridge) {
+        // 브릿지 환경인데 전송 실패 시, 웹 TTS로 중복 재생하지 않음
+        resolve();
         return;
       }
       const ss: SpeechSynthesis | undefined = (window as any).speechSynthesis;
