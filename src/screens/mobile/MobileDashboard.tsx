@@ -146,14 +146,20 @@ async function latestTimelineIdForBossName(bossName: string): Promise<string | n
 }
 
 /** 즉시 컷 */
-async function instantCut(b: BossDto, onAfter?: () => void, speak?: (t: string) => void) {
+async function instantCut(b: BossDto, onAfter?: () => void, speak?: (t: string) => void, force = false) {
   try {
-    await postJSON(`/v1/dashboard/bosses/${b.id}/cut`, {
+    const res = await postJSON<{ ok: boolean; needsConfirm?: boolean; by?: string; action?: string }>(`/v1/dashboard/bosses/${b.id}/cut`, {
       cutAtIso: new Date().toString(),
       mode: "TREASURY",
       items: [],
       participants: [],
+      force,
     });
+    if (res?.needsConfirm && !force) {
+      const ok = window.confirm(`${res.by ?? "다른 유저"}님이 이미 ${res.action ?? "컷"} 처리 했습니다. 덮어 씌우시겠습니까?`);
+      if (ok) return await instantCut(b, onAfter, speak, true);
+      return;
+    }
     try { await speak?.(`${b.name} 컷 처리되었습니다.`); } catch {}
     onAfter?.();
   } catch (e: any) {
@@ -162,10 +168,18 @@ async function instantCut(b: BossDto, onAfter?: () => void, speak?: (t: string) 
 }
 
 /** 멍 */
-async function addDaze(b: BossDto, onAfter?: () => void, speak?: (t: string) => void, clanId?: string | null) {
+async function addDaze(b: BossDto, onAfter?: () => void, speak?: (t: string) => void, clanId?: string | null, force = false) {
   try {
     const fallbackClanId = clanId ?? localStorage.getItem("clanId");
-    await postJSON(`/v1/dashboard/bosses/${b.id}/daze`, { atIso: new Date().toString(), clanId: fallbackClanId ?? undefined });
+    const res = await postJSON<{ ok: boolean; needsConfirm?: boolean; by?: string; action?: string }>(
+      `/v1/dashboard/bosses/${b.id}/daze`,
+      { atIso: new Date().toString(), clanId: fallbackClanId ?? undefined, force }
+    );
+    if (res?.needsConfirm && !force) {
+      const ok = window.confirm(`${res.by ?? "다른 유저"}님이 이미 ${res.action ?? "멍"} 처리 했습니다. 덮어 씌우시겠습니까?`);
+      if (ok) return await addDaze(b, onAfter, speak, clanId, true);
+      return;
+    }
     try { await speak?.(`${b.name} 멍 처리되었습니다.`); } catch {}
     onAfter?.();
   } catch {
@@ -407,12 +421,16 @@ export default function MobileDashboard() {
                         {/* 컷: 검정 버튼 */}
                         <button
                           onClick={() =>
-                            instantCut(b, async () => {
-                              clearOverdueFor(b.id);
-                              await load();
-                            }, voiceEnabled ? speakKorean : undefined)
+                            instantCut(
+                              b,
+                              async () => {
+                                clearOverdueFor(b.id);
+                                await load();
+                              },
+                              voiceEnabled ? speakKorean : undefined
+                            )
                           }
-                          className="px-8 py-2.5 rounded-lg bg-black text-white text-[0.85em] border border-white/30 hover:bg-white/10 active:opacity-80"
+                          className="px-8 py-2.5 rounded-lg bg-rose-500/80 text-white text-[0.85em] hover:bg-rose-500 active:opacity-80"
                         >
                           컷
                         </button>
@@ -438,9 +456,20 @@ export default function MobileDashboard() {
                         )}
                       </div>
                     </div>
-                    <div className="mt-2 text-[0.8em] text-white/60">
-                      멍 {Number((b as any).dazeCount ?? 0)}회 · 미입력 {computeMissCount(b)}회
-                    </div>
+                    {(Number((b as any).dazeCount ?? 0) > 0 || computeMissCount(b) > 0) && (
+                      <div className="mt-2 text-[0.8em] text-white/60">
+                        {Number((b as any).dazeCount ?? 0) > 0 && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-200 border border-amber-300/60 mr-2">
+                            멍 {Number((b as any).dazeCount ?? 0)}회
+                          </span>
+                        )}
+                        {computeMissCount(b) > 0 && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-sky-400/20 text-sky-200 border border-sky-300/60">
+                            미입력 {computeMissCount(b)}회
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </li>
               );

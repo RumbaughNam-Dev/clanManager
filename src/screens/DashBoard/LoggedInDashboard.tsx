@@ -921,7 +921,7 @@ export default function LoggedInDashboard({
       const utter = new SpeechSynthesisUtterance(text);
       utter.lang = "ko-KR"; utter.rate = 1; utter.pitch = 1;
       const boost = voiceBoosted ? 3 : 1;
-      utter.volume = Math.min(1, voiceVolume * boost);
+      utter.volume = voiceVolume * boost;
       const pickVoice = () => {
         const voices = ss.getVoices?.() || [];
         const ko = voices.find((v) => /ko[-_]KR/i.test(v.lang)) || voices.find((v) => v.lang?.startsWith("ko"));
@@ -1078,7 +1078,7 @@ export default function LoggedInDashboard({
               <button
                 type="button"
                 onClick={() => instantCut(b)}
-                className="w-full text-[10px] leading-none px-2 py-[3px] rounded-md text-white bg-white/15 hover:bg-white/20"
+                className="w-full text-[10px] leading-none px-2 py-[3px] rounded-md text-white bg-rose-500/80 hover:bg-rose-500"
               >
                 컷
               </button>
@@ -1094,7 +1094,7 @@ export default function LoggedInDashboard({
             <button
               type="button"
               onClick={() => instantCut(b)}
-              className="col-span-2 w-full text-[10px] leading-none px-2 py-[3px] rounded-md text-white bg-white/15 hover:bg-white/20"
+              className="col-span-2 w-full text-[10px] leading-none px-2 py-[3px] rounded-md text-white bg-rose-500/80 hover:bg-rose-500"
             >
               컷
             </button>
@@ -1297,9 +1297,17 @@ export default function LoggedInDashboard({
   }
 
   // 즉시 컷
-  async function instantCut(b: BossDto) {
+  async function instantCut(b: BossDto, force = false) {
     try {
-      await postJSON(`/v1/dashboard/bosses/${b.id}/cut`, { cutAtIso: new Date().toString(), mode: "TREASURY", items: [], participants: [] });
+      const res = await postJSON<{ ok: boolean; needsConfirm?: boolean; by?: string; action?: string }>(
+        `/v1/dashboard/bosses/${b.id}/cut`,
+        { cutAtIso: new Date().toString(), mode: "TREASURY", items: [], participants: [], force }
+      );
+      if (res?.needsConfirm && !force) {
+        const ok = window.confirm(`${res.by ?? "다른 유저"}님이 이미 ${res.action ?? "컷"} 처리 했습니다. 덮어 씌우시겠습니까?`);
+        if (ok) return await instantCut(b, true);
+        return;
+      }
       try { if (voiceEnabled) await speakKorean(`${b.name} 컷 처리되었습니다.`); } catch {}
 
       // ⬇️ 추가: 지남 유지/경고 상태 해제 + 10분 억제 ON
@@ -1316,11 +1324,19 @@ export default function LoggedInDashboard({
   }
 
   // 멍
-  async function addDaze(b: BossDto) {
+  async function addDaze(b: BossDto, force = false) {
     try {
       // 멍 기록 (백엔드가 타임라인 생성/갱신)
       const clanId = user?.clanId ?? localStorage.getItem("clanId");
-      await postJSON(`/v1/dashboard/bosses/${b.id}/daze`, { atIso: new Date().toString(), clanId: clanId ?? undefined });
+      const res = await postJSON<{ ok: boolean; needsConfirm?: boolean; by?: string; action?: string }>(
+        `/v1/dashboard/bosses/${b.id}/daze`,
+        { atIso: new Date().toString(), clanId: clanId ?? undefined, force }
+      );
+      if (res?.needsConfirm && !force) {
+        const ok = window.confirm(`${res.by ?? "다른 유저"}님이 이미 ${res.action ?? "멍"} 처리 했습니다. 덮어 씌우시겠습니까?`);
+        if (ok) return await addDaze(b, true);
+        return;
+      }
       try { if (voiceEnabled) await speakKorean(`${b.name} 멍 처리되었습니다.`); } catch {}
 
       // ⬇️ 컷/멍 직후 처리: 지남 유지/알림 상태 정리 + 10분 억제 ON
@@ -1792,7 +1808,7 @@ export default function LoggedInDashboard({
                         <button
                           type="button"
                           onClick={() => cutFixedBoss(fb)}
-                          className="px-2 py-[3px] rounded-md bg-white/15 text-white text-[10px] hover:bg-white/20"
+                          className="px-2 py-[3px] rounded-md bg-rose-500/80 text-white text-[10px] hover:bg-rose-500"
                         >
                           컷
                         </button>
@@ -1809,63 +1825,46 @@ export default function LoggedInDashboard({
 
             {/* ── 보스 시간 초기화 모달 ── */}
       {initOpen && (
-        <div
-          className="fixed inset-0 z-[1000] flex items-center justify-center"
-          aria-modal="true"
-          role="dialog"
-          onKeyDown={(e) => {
-            if (e.key === "Escape") setInitOpen(false);
-          }}
+        <Modal
+          open={initOpen}
+          onClose={() => setInitOpen(false)}
+          title="보스 시간 초기화"
+          maxWidth="max-w-[420px]"
         >
-          <div className="absolute inset-0 bg-black/50" onClick={() => setInitOpen(false)} />
-          <div className="relative z-[1001] w-[90vw] max-w-[420px] rounded-2xl bg-white shadow-xl border p-4">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-base font-semibold">보스 시간 초기화</h3>
-              <button
-                type="button"
-                className="px-2 py-1 rounded hover:bg-slate-100"
-                onClick={() => setInitOpen(false)}
-                aria-label="닫기"
-              >
-                ×
-              </button>
-            </div>
+          <p className="text-[12px] text-white/70 mb-3">
+            입력한 시간의 <b>+ 5분</b>으로 오늘 날짜에 모든 보스를 컷합니다.<br />
+            <b>컷/멍 이력이 없던 보스</b>는 이번 1회에 한해 자동으로 멍 처리합니다.
+          </p>
 
-            <p className="text-[12px] text-slate-600 mb-3">
-              입력한 시간의 <b>+ 5분</b>으로 오늘 날짜에 모든 보스를 컷합니다.<br />
-              <b>컷/멍 이력이 없던 보스</b>는 이번 1회에 한해 자동으로 멍 처리합니다.
-            </p>
-
-            <div className="flex items-center gap-2">
-              <input
-                className="border rounded-xl px-3 py-2 w-[130px] text-center"
-                placeholder="07:30"
-                value={initTime}
-                onChange={(e) => setInitTime(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") { e.preventDefault(); runInitCutForAll(); }
-                }}
-              />
-              <button
-                type="button"
-                className="px-3 py-2 rounded-xl bg-slate-900 text-white hover:opacity-90 disabled:opacity-60"
-                onClick={runInitCutForAll}
-                disabled={initBusy}
-              >
-                {initBusy ? "처리 중…" : "시간 초기화"}
-              </button>
-              <button
-                type="button"
-                className="px-3 py-2 rounded-xl border hover:bg-slate-100"
-                onClick={() => setInitOpen(false)}
-              >
-                취소
-              </button>
-            </div>
-
-            <div className="mt-3 text-[11px] text-slate-500">예) 07:30 → 오늘 07:35로 일괄 컷</div>
+          <div className="flex items-center gap-2">
+            <input
+              className="ui-input w-[130px] text-center"
+              placeholder="07:30"
+              value={initTime}
+              onChange={(e) => setInitTime(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); runInitCutForAll(); }
+              }}
+            />
+            <button
+              type="button"
+              className="px-3 py-2 rounded-xl bg-white/15 text-white hover:bg-white/20 disabled:opacity-60"
+              onClick={runInitCutForAll}
+              disabled={initBusy}
+            >
+              {initBusy ? "처리 중…" : "시간 초기화"}
+            </button>
+            <button
+              type="button"
+              className="px-3 py-2 rounded-xl border border-white/10 hover:bg-white/10"
+              onClick={() => setInitOpen(false)}
+            >
+              취소
+            </button>
           </div>
-        </div>
+
+          <div className="mt-3 text-[11px] text-white/50">예) 07:30 → 오늘 07:35로 일괄 컷</div>
+        </Modal>
       )}
 
       {/* ── 디코 보스탐 가져오기 모달 ── */}
