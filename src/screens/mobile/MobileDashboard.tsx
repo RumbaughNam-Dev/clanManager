@@ -187,6 +187,12 @@ export default function MobileDashboard() {
       localStorage.setItem(OVERDUE_STATE_KEY, JSON.stringify(obj));
     } catch {}
   };
+  const clearOverdueFor = (id: string) => {
+    if (overdueStateRef.current.has(id)) {
+      overdueStateRef.current.delete(id);
+      persistOverdueState();
+    }
+  };
 
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(() => {
     try {
@@ -400,7 +406,12 @@ export default function MobileDashboard() {
                       <div className="flex gap-3">
                         {/* 컷: 검정 버튼 */}
                         <button
-                          onClick={() => instantCut(b, load, voiceEnabled ? speakKorean : undefined)}
+                          onClick={() =>
+                            instantCut(b, async () => {
+                              clearOverdueFor(b.id);
+                              await load();
+                            }, voiceEnabled ? speakKorean : undefined)
+                          }
                           className="px-8 py-2.5 rounded-lg bg-black text-white text-[0.85em] border border-white/30 hover:bg-white/10 active:opacity-80"
                         >
                           컷
@@ -409,7 +420,17 @@ export default function MobileDashboard() {
                         {/* 멍: 랜덤 보스만 */}
                         {b.isRandom && (
                           <button
-                            onClick={() => addDaze(b, load, voiceEnabled ? speakKorean : undefined, user?.clanId ?? localStorage.getItem("clanId"))}
+                            onClick={() =>
+                              addDaze(
+                                b,
+                                async () => {
+                                  clearOverdueFor(b.id);
+                                  await load();
+                                },
+                                voiceEnabled ? speakKorean : undefined,
+                                user?.clanId ?? localStorage.getItem("clanId")
+                              )
+                            }
                             className="px-8 py-2.5 rounded-lg bg-white text-black text-[0.85em] hover:bg-gray-100 active:opacity-80"
                           >
                             멍
