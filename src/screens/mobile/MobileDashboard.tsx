@@ -371,6 +371,15 @@ export default function MobileDashboard() {
             >
               {voiceEnabled ? "음성 ON" : "음소거"}
             </button>
+            <button
+              type="button"
+              className="px-4 py-2 rounded-xl text-[0.85em] font-semibold border border-white/20 text-white/80 bg-white/5 hover:bg-white/10"
+              onClick={() => {
+                speakKorean("이 버튼으로 소리를 듣고 음량을 조절해주세요.").catch(() => {});
+              }}
+            >
+              음성 테스트
+            </button>
             <div className="flex-1">
               <div className="text-[0.75em] text-white/60 mb-2">볼륨</div>
               <input
