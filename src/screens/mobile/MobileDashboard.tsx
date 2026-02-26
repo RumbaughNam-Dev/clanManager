@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { postJSON } from "@/lib/http";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { postJSON, putJSON } from "@/lib/http";
 import { ensurePushSubscription } from "@/lib/push";
 import { useAuth } from "@/contexts/AuthContext";
 import type { BossDto } from "../../types";
@@ -195,6 +195,9 @@ export default function MobileDashboard() {
   const [bossesForgotten, setForgotten] = useState<BossDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [tick, setTick] = useState(0);
+  const [bossListEditMode, setBossListEditMode] = useState(false);
+  const [excludedBossIds, setExcludedBossIds] = useState<Set<string>>(new Set());
+  const [bossListSaving, setBossListSaving] = useState(false);
   const overdueStateRef = useRef<Map<string, { dueAt: number; holdUntil: number }>>(new Map());
   const persistOverdueState = () => {
     try {
@@ -401,10 +404,10 @@ export default function MobileDashboard() {
     } catch {}
   }, []);
 
-  const load = async () => {
+  const load = async (forEdit = false) => {
     setLoading(true);
     try {
-      const data = await postJSON<any>("/v1/dashboard/bosses");
+      const data = await postJSON<any>("/v1/dashboard/bosses", forEdit ? { forEdit: true } : undefined);
       setTracked(data.tracked ?? []);
       setForgotten(data.forgotten ?? []);
     } catch {
@@ -415,11 +418,11 @@ export default function MobileDashboard() {
   };
 
   useEffect(() => {
-    load();
-    const t1 = setInterval(load, 60_000);
+    void load(bossListEditMode);
+    const t1 = setInterval(() => { void load(bossListEditMode); }, 60_000);
     const t2 = setInterval(() => setTick(x => (x + 1) % 60), 1000); // 1초마다 남은 시간 갱신
     return () => { clearInterval(t1); clearInterval(t2); };
-  }, []);
+  }, [bossListEditMode]);
 
   useEffect(() => {
     const handleAppMessage = (msg: any) => {
@@ -505,10 +508,60 @@ export default function MobileDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bossesTracked, bossesForgotten, tick]);
 
+  const toggleExcludedBoss = useCallback((bossId: string) => {
+    setExcludedBossIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(bossId)) next.delete(bossId);
+      else next.add(bossId);
+      return next;
+    });
+  }, []);
+
+  const handleBossListEditCardClick = useCallback(async () => {
+    if (bossListSaving) return;
+    if (!bossListEditMode) {
+      try {
+        await load(true);
+        setBossListEditMode(true);
+      } catch {
+        alert("보스 목록을 다시 불러오지 못했습니다.");
+      }
+      return;
+    }
+    if (!user?.id || !user?.clanId) {
+      alert("사용자/클랜 정보가 없어 저장할 수 없습니다.");
+      return;
+    }
+
+    const bossMetaIds = Array.from(excludedBossIds).map((id) => {
+      const n = Number(id);
+      return Number.isFinite(n) ? n : id;
+    });
+
+    setBossListSaving(true);
+    try {
+      const res = await putJSON<{ ok: boolean; savedCount: number }>(
+        "/v1/dashboard/boss-visibility/exclusions",
+        {
+          clanId: user.clanId,
+          userId: user.id,
+          bossMetaIds,
+        }
+      );
+      alert(`보스 목록 편집 저장 완료 (${res?.savedCount ?? bossMetaIds.length}건)`);
+      setBossListEditMode(false);
+      await load();
+    } catch (e: any) {
+      alert(e?.message ?? "보스 목록 편집 저장 실패");
+    } finally {
+      setBossListSaving(false);
+    }
+  }, [bossListEditMode, bossListSaving, excludedBossIds, user?.clanId, user?.id]);
+
   return (
     <div className="h-[100dvh] overflow-y-auto bg-slate-950 text-white text-[clamp(22px,5vw,32px)]">
       <div className="py-5">
-        <div className="sticky top-0 z-20 px-[5%] pb-4">
+        <div className="sticky top-0 z-40 px-[5%] pb-4">
           <div className="rounded-2xl border border-white/10 bg-slate-950/85 backdrop-blur p-4 flex items-center gap-4">
             <button
               type="button"
@@ -546,6 +599,7 @@ export default function MobileDashboard() {
         ) : (
           <ul className="space-y-4 pb-28">
             {sortedAll.map((b) => {
+              const isExcludedInEdit = bossListEditMode && excludedBossIds.has(b.id);
               const nms = remainingMsForMobile(b, Date.now(), overdueStateRef);
               const r = remainLabelFromDiff(nms);
               const isSoon = r.tone === "soon";
@@ -553,8 +607,8 @@ export default function MobileDashboard() {
               const isWarn15 = r.tone === "warn15";
               return (
                 <li key={b.id} className="px-[5%]">
-                  <div className={`w-full rounded-2xl shadow-sm border ${
-                    isSoon
+                  <div className={`relative w-full rounded-2xl shadow-sm border ${
+                    !bossListEditMode && isSoon
                       ? "ring-2 ring-rose-400 bg-rose-500/10 animate-blink"
                       : isWarn10
                       ? "border-amber-400/80 bg-amber-500/10"
@@ -562,73 +616,117 @@ export default function MobileDashboard() {
                       ? "border-yellow-300/80 bg-yellow-500/10"
                       : "border-white/15 bg-white/5"
                   } p-4`}>
-                    <div className="flex items-center justify-between">
-                      <div className="font-semibold text-[1.1em]">{b.name}</div>
-                      <div className={`text-[0.85em] ${isSoon ? "text-rose-300" : "text-white/70"}`}>{r.text}</div>
-                    </div>
-
-                    <div className="mt-1 flex items-center justify-between">
-                      <div className="text-[0.85em] text-white/70 truncate">
-                        젠 위치: <span className="font-medium text-white/90">{b.location ?? "—"}</span>
+                    {bossListEditMode && (
+                      <button
+                        type="button"
+                        onClick={() => toggleExcludedBoss(b.id)}
+                        className={`absolute top-3 right-3 z-10 inline-flex h-6 w-6 items-center justify-center rounded-full shadow-sm ${
+                          isExcludedInEdit
+                            ? "bg-blue-400/80 text-white hover:bg-blue-400"
+                            : "bg-rose-400/80 text-white hover:bg-rose-400"
+                        }`}
+                        aria-label={isExcludedInEdit ? "목록에 다시 추가" : "목록에서 제외"}
+                      >
+                        {isExcludedInEdit ? (
+                          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+                            <path d="M12 6v12" />
+                            <path d="M6 12h12" />
+                          </svg>
+                        ) : (
+                          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+                            <path d="M7 7l10 10" />
+                            <path d="M17 7L7 17" />
+                          </svg>
+                        )}
+                      </button>
+                    )}
+                    <div className={isExcludedInEdit ? "grayscale opacity-50 blur-[1px]" : ""}>
+                      <div className="flex items-center justify-between">
+                        <div className="font-semibold text-[1.1em]">{b.name}</div>
+                        {!bossListEditMode && (
+                          <div className={`text-[0.85em] ${isSoon ? "text-rose-300" : "text-white/70"}`}>
+                            {r.text}
+                          </div>
+                        )}
                       </div>
 
-                      <div className="flex gap-3">
-                        {/* 컷: 검정 버튼 */}
-                        <button
-                          onClick={() =>
-                            instantCut(
-                              b,
-                              async () => {
-                                clearOverdueFor(b.id);
-                                await load();
-                              },
-                              voiceEnabled ? enqueueSpeak : undefined
-                            )
-                          }
-                          className="px-8 py-2.5 rounded-lg bg-rose-500/80 text-white text-[0.85em] hover:bg-rose-500 active:opacity-80"
-                        >
-                          컷
-                        </button>
+                      <div className="mt-1 flex items-center justify-between">
+                        <div className="text-[0.85em] text-white/70 truncate">
+                          젠 위치: <span className="font-medium text-white/90">{b.location ?? "—"}</span>
+                        </div>
 
-                        {/* 멍: 랜덤 보스만 */}
-                        {b.isRandom && (
+                        <div className="flex gap-3">
+                          {/* 컷: 검정 버튼 */}
                           <button
+                            type="button"
+                            disabled={bossListEditMode}
                             onClick={() =>
-                              addDaze(
+                              instantCut(
                                 b,
                                 async () => {
                                   clearOverdueFor(b.id);
                                   await load();
                                 },
-                                voiceEnabled ? enqueueSpeak : undefined,
-                                user?.clanId ?? localStorage.getItem("clanId")
+                                voiceEnabled ? enqueueSpeak : undefined
                               )
                             }
-                            className="px-8 py-2.5 rounded-lg bg-white text-black text-[0.85em] hover:bg-gray-100 active:opacity-80"
+                            className="px-8 py-2.5 rounded-lg bg-rose-500/80 text-white text-[0.85em] hover:bg-rose-500 active:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
                           >
-                            멍
+                            컷
                           </button>
-                        )}
+
+                          {/* 멍: 랜덤 보스만 */}
+                          {b.isRandom && (
+                            <button
+                              type="button"
+                              disabled={bossListEditMode}
+                              onClick={() =>
+                                addDaze(
+                                  b,
+                                  async () => {
+                                    clearOverdueFor(b.id);
+                                    await load();
+                                  },
+                                  voiceEnabled ? enqueueSpeak : undefined,
+                                  user?.clanId ?? localStorage.getItem("clanId")
+                                )
+                              }
+                              className="px-8 py-2.5 rounded-lg bg-white text-black text-[0.85em] hover:bg-gray-100 active:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                              멍
+                            </button>
+                          )}
+                        </div>
                       </div>
+                      {!bossListEditMode && (Number((b as any).dazeCount ?? 0) > 0 || computeMissCount(b) > 0) && (
+                        <div className="mt-2 text-[0.8em] text-white/60">
+                          {Number((b as any).dazeCount ?? 0) > 0 && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-200 border border-amber-300/60 mr-2">
+                              멍 {Number((b as any).dazeCount ?? 0)}회
+                            </span>
+                          )}
+                          {computeMissCount(b) > 0 && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-sky-400/20 text-sky-200 border border-sky-300/60">
+                              미입력 {computeMissCount(b)}회
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    {(Number((b as any).dazeCount ?? 0) > 0 || computeMissCount(b) > 0) && (
-                      <div className="mt-2 text-[0.8em] text-white/60">
-                        {Number((b as any).dazeCount ?? 0) > 0 && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-200 border border-amber-300/60 mr-2">
-                            멍 {Number((b as any).dazeCount ?? 0)}회
-                          </span>
-                        )}
-                        {computeMissCount(b) > 0 && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-sky-400/20 text-sky-200 border border-sky-300/60">
-                            미입력 {computeMissCount(b)}회
-                          </span>
-                        )}
-                      </div>
-                    )}
                   </div>
                 </li>
               );
             })}
+            <li className="px-[5%]">
+              <div
+                onClick={() => void handleBossListEditCardClick()}
+                className="w-full rounded-2xl shadow-sm border border-white/15 bg-white/5 p-4 cursor-pointer"
+              >
+                <div className="flex min-h-[92px] items-center justify-center text-center text-[1.05em] font-semibold text-blue-300">
+                  {bossListEditMode ? (bossListSaving ? "저장 중..." : "저장") : "보스 목록 편집"}
+                </div>
+              </div>
+            </li>
           </ul>
         )}
       </div>

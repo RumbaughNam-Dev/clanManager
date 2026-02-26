@@ -49,7 +49,7 @@ async function handleError(res: Response, url: string, method: string): Promise<
  *  - 디버깅용으로 X-Orig-Method 헤더에 원래 의도한 메서드를 표시
  */
 export async function requestJSON<T>(
-  method: "GET" | "POST" | "PATCH" | "DELETE",
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
   path: string,
   body?: any,
   extraInit?: RequestInit
@@ -105,6 +105,9 @@ export async function postJSON<T>(
 }
 export async function patchJSON<T>(path: string, body?: any): Promise<T> {
   return requestJSON<T>("PATCH", path, body);
+}
+export async function putJSON<T>(path: string, body?: any): Promise<T> {
+  return requestJSON<T>("PUT", path, body);
 }
 export async function delJSON<T>(path: string, body?: any): Promise<T> {
   return requestJSON<T>("DELETE", path, body);
