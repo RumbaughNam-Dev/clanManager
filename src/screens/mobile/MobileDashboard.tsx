@@ -966,7 +966,7 @@ export default function MobileDashboard() {
   }, [bossListSaving]);
 
   return (
-    <div className="h-[100dvh] overflow-y-auto bg-slate-950 text-white text-[clamp(22px,5vw,32px)]">
+    <div className="h-[100dvh] overflow-y-auto bg-slate-950 text-white text-base">
       <div className="py-5">
         <div className="sticky top-0 z-40 px-[5%] pb-4">
           <div className="rounded-2xl border border-white/10 bg-slate-950/85 backdrop-blur p-4">

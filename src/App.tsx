@@ -271,7 +271,7 @@ export default function App() {
       )}
 
       <main
-        className={`mx-auto w-full min-w-[1440px] max-w-[1920px] px-6 ${
+        className={`mx-auto w-full ${isMobile ? "max-w-none px-0" : "min-w-[1440px] max-w-[1920px] px-6"} ${
           page === "dashboard"
             ? (isMobile ? "h-[100dvh] overflow-y-auto" : "h-[calc(100vh-56px)] flex flex-col")
             : "h-[calc(100vh-56px)] overflow-y-auto py-6 space-y-6"
