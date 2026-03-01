@@ -324,7 +324,7 @@ export default function MobileDashboard() {
   useEffect(() => {
     try { localStorage.setItem("voiceVolume", String(voiceVolume)); } catch {}
   }, [voiceVolume]);
-  const effectiveVoiceVolume = Math.min(1, 0.35 + voiceVolume * 0.65);
+  const effectiveVoiceVolume = Math.max(0, Math.min(1, voiceVolume));
 
   const alertedRef = useRef<Set<string>>(new Set());
   const fixedAlertedRef = useRef<Map<string, Set<string>>>(new Map());
@@ -507,7 +507,7 @@ export default function MobileDashboard() {
   }, [tick, voiceEnabled, voiceVolume, bossesTracked, bossesForgotten]);
 
   useEffect(() => {
-    if (!voiceEnabled || fixedRaw.length === 0) return;
+    if (!voiceEnabled || fixedRaw.length === 0 || !fixedVoicePrimedRef.current) return;
     const now = Date.now();
     const curStart = cycleStartMs(now);
     if (fixedCycleStartRef.current !== curStart) {
@@ -566,6 +566,7 @@ export default function MobileDashboard() {
       if (set.size > 0) seeded.set(f.id, set);
     }
     fixedAlertedRef.current = seeded;
+    fixedCycleStartRef.current = cycleStartMs(now);
     fixedVoicePrimedRef.current = true;
   }, [fixedRaw]);
 

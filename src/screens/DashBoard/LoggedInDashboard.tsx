@@ -956,7 +956,7 @@ export default function LoggedInDashboard({
   // ──────────────── 공통 도우미 ────────────────
   function delay(ms: number) { return new Promise((res) => setTimeout(res, ms)); }
   const speakQueueRef = useRef<Promise<void>>(Promise.resolve());
-  const effectiveVoiceVolume = Math.min(1, 0.35 + voiceVolume * 0.65);
+  const effectiveVoiceVolume = Math.max(0, Math.min(1, voiceVolume));
 
   function playBeep(durationMs = 300) {
     const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext;
@@ -966,7 +966,7 @@ export default function LoggedInDashboard({
     const gain = ctx.createGain();
     osc.type = "square";
     osc.frequency.value = 980;
-    gain.gain.value = Math.min(0.28, 0.12 * Math.max(0.5, effectiveVoiceVolume));
+    gain.gain.value = Math.min(0.28, 0.28 * effectiveVoiceVolume);
     osc.connect(gain); gain.connect(ctx.destination); osc.start();
     return new Promise<void>((resolve) => {
       setTimeout(() => { osc.stop(); ctx.close().finally(() => resolve()); }, durationMs);
@@ -1374,11 +1374,12 @@ export default function LoggedInDashboard({
       if (set.size > 0) seeded.set(f.id, set);
     }
     fixedAlertedMapRef.current = seeded;
+    fixedCycleStartRef.current = cycleStartMs(now);
     fixedVoicePrimedRef.current = true;
   }, [fixedSorted]);
 
   useEffect(() => {
-    if (!voiceEnabled || fixedSorted.length === 0) return;
+    if (!voiceEnabled || fixedSorted.length === 0 || !fixedVoicePrimedRef.current) return;
     const now = Date.now();
     const curStart = cycleStartMs(now);
     if (fixedCycleStartRef.current !== curStart) {
@@ -2254,6 +2255,7 @@ export default function LoggedInDashboard({
               <div>4. 보스 목록 편집 기능에 "취소" 기능을 넣었습니다.</div>
               <div>5. 혈맹별 디스코드 링크 입력기능을 추가했습니다. PC 화면에서 확인 가능하며, 상단 우측에 위치해 있습니다.</div>
               <div>6. 고정보스도 음성 안내 되도록 변경했습니다.</div>
+              <div>7. 브라우저 기능 제한으로 음량 증폭이 작동하지 않는 문제가 발생했습니다. 해당 기능은 추 후 문제 해결 방안을 찾은 후 다시 제공할 예정입니다.</div>
             </div>
 
             <div className="mt-6 flex items-center justify-between gap-3">
