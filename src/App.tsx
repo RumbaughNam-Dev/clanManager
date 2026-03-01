@@ -16,10 +16,15 @@ import AdminBossCycle from "./screens/SuperAdmin/AdminBossCycle";
 import MobileDashboard from "./screens/mobile/MobileDashboard";
 import FeedbackBoard from "./screens/Feedback/FeedbackBoard";
 import RaidManage from "./screens/RaidManage/RaidManage";
+import Modal from "./components/common/Modal";
+import { putJSON } from "./lib/http";
 
 export default function App() {
   const [page, setPage] = useState<PageKey>("dashboard");
-  const { role, user, logout } = useAuth();
+  const { role, user, logout, setUser } = useAuth();
+  const [discordModalOpen, setDiscordModalOpen] = useState(false);
+  const [discordLinkInput, setDiscordLinkInput] = useState("");
+  const [discordSaving, setDiscordSaving] = useState(false);
   const apkUrl = `${import.meta.env.BASE_URL}clan-manager.apk`;
   const isMobile = (() => {
     const qsMobile =
@@ -107,6 +112,8 @@ export default function App() {
   }, [role]);
 
   const effectiveRole = (role ?? "USER") as Role;
+  const canEditDiscordLink = role === "LEADER" || role === "ADMIN" || role === "SUPERADMIN";
+  const clanDiscordLink = user?.clanDiscordLink?.trim() || "";
 
   const guardAndNav = (next: PageKey) => {
     const publicPages: PageKey[] = ["dashboard", "login", "signup"];
@@ -118,8 +125,38 @@ export default function App() {
     setPage(next);
   };
 
+  const openDiscordModal = () => {
+    setDiscordLinkInput(clanDiscordLink);
+    setDiscordModalOpen(true);
+  };
+
+  const saveDiscordLink = async () => {
+    if (!user?.clanId) {
+      alert("혈맹 정보가 없어 저장할 수 없습니다.");
+      return;
+    }
+    if (!canEditDiscordLink) {
+      alert("디코 링크 수정 권한이 없습니다.");
+      return;
+    }
+    setDiscordSaving(true);
+    try {
+      const res = await putJSON<{ ok: boolean; clanId: string; discordLink: string | null }>(
+        `/v1/clans/${user.clanId}/discord-link`,
+        { discordLink: discordLinkInput }
+      );
+      setUser((prev) => (prev ? { ...prev, clanDiscordLink: res.discordLink ?? null } : prev));
+      setDiscordModalOpen(false);
+      alert("디코 링크를 저장했습니다.");
+    } catch (e: any) {
+      alert(e?.body?.message ?? e?.message ?? "디코 링크 저장 실패");
+    } finally {
+      setDiscordSaving(false);
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-slate-950 text-white relative overflow-hidden">
+    <div className="min-h-screen min-w-[1440px] bg-slate-950 text-white relative overflow-x-auto overflow-y-hidden">
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute -top-24 -right-20 h-56 w-56 rounded-full bg-emerald-400/25 blur-3xl" />
         <div className="absolute bottom-[-120px] left-[-60px] h-72 w-72 rounded-full bg-sky-400/20 blur-3xl" />
@@ -127,7 +164,7 @@ export default function App() {
       </div>
       {!isMobile && (
         <header className="sticky top-0 z-40 bg-slate-950/85 text-white backdrop-blur border-b border-white/10">
-          <div className="mx-auto w-full max-w-[1920px] px-6 h-16 flex items-center justify-between gap-4">
+          <div className="mx-auto w-full min-w-[1440px] max-w-[1920px] px-6 h-16 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               {/* 🔗 로고 클릭 시 대시보드로 이동 */}
               <button
@@ -161,6 +198,40 @@ export default function App() {
                     {user.clanName ? ` · ${user.clanName}` : ""}
                     {` (${roleLabel(role)})`}
                   </span>
+                  {clanDiscordLink ? (
+                    <div className="flex items-center rounded-xl border border-white/20 overflow-hidden">
+                      <a
+                        href={clanDiscordLink}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-3 py-1.5 hover:bg-white/10"
+                      >
+                        디코 링크
+                      </a>
+                      {canEditDiscordLink && (
+                        <>
+                          <span className="text-white/30">|</span>
+                          <button
+                            type="button"
+                            onClick={openDiscordModal}
+                            className="px-3 py-1.5 text-white/70 hover:bg-white/10 hover:text-white"
+                            aria-label="디코 링크 수정"
+                            title="디코 링크 수정"
+                          >
+                            수정
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  ) : canEditDiscordLink ? (
+                    <button
+                      type="button"
+                      onClick={openDiscordModal}
+                      className="px-3 py-1.5 rounded-xl border border-white/20 hover:bg-white/10"
+                    >
+                      디코 링크 입력
+                    </button>
+                  ) : null}
                   <a
                     href={apkUrl}
                     download
@@ -200,7 +271,7 @@ export default function App() {
       )}
 
       <main
-        className={`mx-auto w-full max-w-[1920px] px-6 ${
+        className={`mx-auto w-full min-w-[1440px] max-w-[1920px] px-6 ${
           page === "dashboard"
             ? (isMobile ? "h-[100dvh] overflow-y-auto" : "h-[calc(100vh-56px)] flex flex-col")
             : "h-[calc(100vh-56px)] overflow-y-auto py-6 space-y-6"
@@ -223,6 +294,42 @@ export default function App() {
         {page === "adminClanRequests" && <AdminClanRequests />}
         {page === "adminBossCycle" && <AdminBossCycle />}
       </main>
+
+      {!isMobile && user && canEditDiscordLink && (
+        <Modal
+          open={discordModalOpen}
+          onClose={() => setDiscordModalOpen(false)}
+          title="디코 링크 입력"
+          maxWidth="max-w-[520px]"
+        >
+          <div className="space-y-3">
+            <input
+              type="url"
+              value={discordLinkInput}
+              onChange={(e) => setDiscordLinkInput(e.currentTarget.value)}
+              placeholder="https://discord.gg/..."
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/40"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDiscordModalOpen(false)}
+                className="px-3 py-2 rounded-xl border border-white/10 hover:bg-white/10"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={() => void saveDiscordLink()}
+                disabled={discordSaving}
+                className="px-3 py-2 rounded-xl bg-white/15 text-white hover:bg-white/20 disabled:opacity-60"
+              >
+                {discordSaving ? "저장 중..." : "저장"}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

@@ -11,6 +11,7 @@ type UserShape = {
   clanId: string | null;
   clanName?: string | null;
   serverDisplay?: string | null;
+  clanDiscordLink?: string | null;
 };
 
 type AuthContextShape = {
@@ -46,13 +47,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         // ✅ 백엔드 사양: POST /v1/auth/me (JwtAuth)
         try {
-          const me = await postJSON<{ ok: true; user: UserShape & { clanName?: string | null; serverDisplay?: string | null } }>(
+          const me = await postJSON<{ ok: true; user: UserShape & { clanName?: string | null; serverDisplay?: string | null; clanDiscordLink?: string | null } }>(
             "/v1/auth/me",
             {}
           );
           setUser({
             ...me.user,
             clanName: me.user.clanName ?? localStorage.getItem("clanName") ?? null,
+            clanDiscordLink: me.user.clanDiscordLink ?? null,
           });
         } catch (err: any) {
           // ✅ 토큰 불일치나 만료 시 자동 초기화
@@ -81,6 +83,7 @@ const login = async (loginId: string, password: string) => {
     refreshToken?: string;
     clanName?: string | null;
     serverDisplay?: string | null;
+    clanDiscordLink?: string | null;
     mustChangePassword?: boolean;
   }>("/v1/auth/login", { loginId, password });
 
@@ -103,6 +106,7 @@ const login = async (loginId: string, password: string) => {
       ...res.user,
       clanName: res.clanName ?? null,
       serverDisplay: res.serverDisplay ?? res.user.serverDisplay ?? null,
+      clanDiscordLink: res.clanDiscordLink ?? res.user.clanDiscordLink ?? null,
     });
   }
   return { mustChangePassword: false };

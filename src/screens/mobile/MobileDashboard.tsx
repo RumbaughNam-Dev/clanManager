@@ -3,6 +3,51 @@ import { postJSON, putJSON } from "@/lib/http";
 import { ensurePushSubscription } from "@/lib/push";
 import { useAuth } from "@/contexts/AuthContext";
 import type { BossDto } from "../../types";
+import Modal from "@/components/common/Modal";
+
+const CHO = ["ㄱ","ㄲ","ㄴ","ㄷ","ㄸ","ㄹ","ㅁ","ㅂ","ㅃ","ㅅ","ㅆ","ㅇ","ㅈ","ㅉ","ㅊ","ㅋ","ㅌ","ㅍ","ㅎ"];
+const BOT_COMMAND_HELP = [
+  "-v 메세지 : 메세지를 음성으로 읽어줍니다.",
+  "보탐 초기화 : 현재 시각으로 보스타임을 초기화합니다.",
+  "[보스명] 컷 : 입력한 보스를 현재 시각으로 컷 처리합니다.",
+  "컷 / ㅋ / z : 현재 목록 최상단 보스를 컷 처리합니다.",
+  "[보스명] 멍 : 입력한 보스를 현재 시각으로 멍 처리합니다.",
+  "멍 / ㅁ / a : 현재 목록 최상단 보스를 멍 처리합니다.",
+].join("\n");
+
+function toChosung(input: string): string {
+  let out = "";
+  for (const ch of input) {
+    const code = ch.charCodeAt(0);
+    if (code >= 0xac00 && code <= 0xd7a3) {
+      const idx = Math.floor((code - 0xac00) / 588);
+      out += CHO[idx] ?? ch;
+    } else {
+      out += ch;
+    }
+  }
+  return out;
+}
+
+function isChosungToken(token: string): boolean {
+  if (!token) return false;
+  for (const ch of token) {
+    const c = ch.charCodeAt(0);
+    if (c < 0x3131 || c > 0x314e) return false;
+  }
+  return true;
+}
+
+type FixedBossDto = {
+  id: string;
+  name: string;
+  location: string;
+  genTime: number | null;
+  respawn: number;
+  isRandom: boolean;
+  lastCutAt: string | null;
+  nextSpawnAt: string | null;
+};
 
 /** 시간 상수 */
 const MS = 1000;
@@ -12,6 +57,7 @@ const OVERDUE_GRACE_MS = 10 * MIN;
 const ALERT_WIN_MS = 1000;
 const WARN_10_MS = 10 * MIN;
 const WARN_15_MS = 15 * MIN;
+const DAY = 24 * 60 * MIN;
 const OVERDUE_STATE_KEY = "overdueStateMap";
 const VOICE_DEDUP_KEY = "mobileVoiceDedup";
 const VOICE_DEDUP_TTL = 5000;
@@ -126,12 +172,37 @@ function computeMissCount(b: BossDto, now = Date.now()): number {
   const lastMs = new Date(b.lastCutAt).getTime();
   if (!Number.isFinite(lastMs) || now <= lastMs) return 0;
 
-  const diff = now - lastMs;
-  if (diff < respawnMs + OVERDUE_GRACE_MS) return 0;
+  const overdueMs = now - (lastMs + respawnMs);
+  if (overdueMs < OVERDUE_GRACE_MS) return 0;
 
-  const overdueStart = lastMs + respawnMs + OVERDUE_GRACE_MS;
-  const missed = 1 + Math.floor((now - overdueStart) / respawnMs);
+  const missed = 1 + Math.floor((overdueMs - OVERDUE_GRACE_MS) / respawnMs);
   return missed;
+}
+
+function cycleStartMs(nowMs = Date.now()) {
+  const d = new Date(nowMs);
+  const base = new Date(d);
+  base.setSeconds(0, 0);
+  if (d.getHours() >= 5) base.setHours(5, 0, 0, 0);
+  else { base.setDate(base.getDate() - 1); base.setHours(5, 0, 0, 0); }
+  return base.getTime();
+}
+
+function fixedOccMs(genTime: number | null | undefined, nowMs = Date.now()) {
+  const n = genTime == null ? NaN : Number(genTime);
+  if (!Number.isFinite(n)) return Number.POSITIVE_INFINITY;
+  const start = cycleStartMs(nowMs);
+  const offsetMin = ((Math.floor(n) - 300 + 1440) % 1440);
+  return start + offsetMin * MIN;
+}
+
+function fixedDisplayRemainMs(f: FixedBossDto, nowMs = Date.now()) {
+  const occ = fixedOccMs(f.genTime, nowMs);
+  if (!Number.isFinite(occ)) return Number.POSITIVE_INFINITY;
+  const nextSpawnMs = f.nextSpawnAt ? new Date(f.nextSpawnAt).getTime() : NaN;
+  const baseRemain = Number.isFinite(nextSpawnMs) ? nextSpawnMs - nowMs : occ - nowMs;
+  if (baseRemain >= -OVERDUE_GRACE_MS) return baseRemain;
+  return occ + DAY - nowMs;
 }
 
 /** API: 최근 타임라인 id */
@@ -148,9 +219,9 @@ async function latestTimelineIdForBossName(bossName: string): Promise<string | n
 }
 
 /** 즉시 컷 */
-async function instantCut(b: BossDto, onAfter?: () => void, speak?: (t: string) => void, force = false) {
+async function instantCut(b: BossDto, onAfter?: () => void, speak?: (t: string) => void, force = false, announce = true): Promise<boolean> {
   try {
-    const res = await postJSON<{ ok: boolean; needsConfirm?: boolean; by?: string; action?: string }>(`/v1/dashboard/bosses/${b.id}/cut`, {
+    const res = await postJSON<{ ok?: boolean; needsConfirm?: boolean; by?: string; action?: string; message?: string }>(`/v1/dashboard/bosses/${b.id}/cut`, {
       cutAtIso: new Date().toString(),
       mode: "TREASURY",
       items: [],
@@ -159,33 +230,49 @@ async function instantCut(b: BossDto, onAfter?: () => void, speak?: (t: string) 
     });
     if (res?.needsConfirm && !force) {
       const ok = window.confirm(`${res.by ?? "다른 유저"}님이 이미 ${res.action ?? "컷"} 처리 했습니다. 덮어 씌우시겠습니까?`);
-      if (ok) return await instantCut(b, onAfter, speak, true);
-      return;
+      if (ok) return await instantCut(b, onAfter, speak, true, announce);
+      return false;
     }
-    try { await speak?.(`${b.name} 컷 처리되었습니다.`); } catch {}
+    if (res?.ok === false) {
+      alert(res?.message ?? "즉시 컷 처리에 실패했습니다.");
+      return false;
+    }
+    try { if (announce) await speak?.(`${b.name} 컷 처리되었습니다.`); } catch {}
     onAfter?.();
+    return true;
   } catch (e: any) {
     alert(e?.message ?? "즉시 컷 실패");
+    return false;
   }
 }
 
 /** 멍 */
-async function addDaze(b: BossDto, onAfter?: () => void, speak?: (t: string) => void, clanId?: string | null, force = false) {
+async function addDaze(b: BossDto, onAfter?: () => void, speak?: (t: string) => void, clanId?: string | null, force = false, announce = true): Promise<boolean> {
+  if (computeMissCount(b) > 0) {
+    alert("미입력 된 보스는 멍 처리 할 수 없습니다.");
+    return false;
+  }
   try {
     const fallbackClanId = clanId ?? localStorage.getItem("clanId");
-    const res = await postJSON<{ ok: boolean; needsConfirm?: boolean; by?: string; action?: string }>(
+    const res = await postJSON<{ ok?: boolean; needsConfirm?: boolean; by?: string; action?: string; message?: string }>(
       `/v1/dashboard/bosses/${b.id}/daze`,
       { atIso: new Date().toString(), clanId: fallbackClanId ?? undefined, force }
     );
     if (res?.needsConfirm && !force) {
       const ok = window.confirm(`${res.by ?? "다른 유저"}님이 이미 ${res.action ?? "멍"} 처리 했습니다. 덮어 씌우시겠습니까?`);
-      if (ok) return await addDaze(b, onAfter, speak, clanId, true);
-      return;
+      if (ok) return await addDaze(b, onAfter, speak, clanId, true, announce);
+      return false;
     }
-    try { await speak?.(`${b.name} 멍 처리되었습니다.`); } catch {}
+    if (res?.ok === false) {
+      alert(res?.message ?? "멍 처리에 실패했습니다.");
+      return false;
+    }
+    try { if (announce) await speak?.(`${b.name} 멍 처리되었습니다.`); } catch {}
     onAfter?.();
+    return true;
   } catch {
     alert("멍 기록에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+    return false;
   }
 }
 
@@ -193,11 +280,16 @@ export default function MobileDashboard() {
   const { user, logout } = useAuth();
   const [bossesTracked, setTracked] = useState<BossDto[]>([]);
   const [bossesForgotten, setForgotten] = useState<BossDto[]>([]);
+  const [fixedRaw, setFixedRaw] = useState<FixedBossDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [tick, setTick] = useState(0);
   const [bossListEditMode, setBossListEditMode] = useState(false);
   const [excludedBossIds, setExcludedBossIds] = useState<Set<string>>(new Set());
   const [bossListSaving, setBossListSaving] = useState(false);
+  const [commandText, setCommandText] = useState("");
+  const [commandSaving, setCommandSaving] = useState(false);
+  const [commandHelpOpen, setCommandHelpOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const overdueStateRef = useRef<Map<string, { dueAt: number; holdUntil: number }>>(new Map());
   const persistOverdueState = () => {
     try {
@@ -224,16 +316,21 @@ export default function MobileDashboard() {
   const [voiceVolume, setVoiceVolume] = useState<number>(() => {
     try {
       const v = localStorage.getItem("voiceVolume");
-      const n = v == null ? 0.8 : Number(v);
-      if (!Number.isFinite(n)) return 0.8;
+      const n = v == null ? 1 : Number(v);
+      if (!Number.isFinite(n)) return 1;
       return Math.min(1, Math.max(0, n));
-    } catch { return 0.8; }
+    } catch { return 1; }
   });
   useEffect(() => {
     try { localStorage.setItem("voiceVolume", String(voiceVolume)); } catch {}
   }, [voiceVolume]);
+  const effectiveVoiceVolume = Math.min(1, 0.35 + voiceVolume * 0.65);
 
   const alertedRef = useRef<Set<string>>(new Set());
+  const fixedAlertedRef = useRef<Map<string, Set<string>>>(new Map());
+  const fixedCycleStartRef = useRef<number>(0);
+  const normalVoicePrimedRef = useRef(false);
+  const fixedVoicePrimedRef = useRef(false);
   const recentSpeakRef = useRef<Map<string, number>>(new Map());
   const speakQueueRef = useRef<Promise<void>>(Promise.resolve());
   const appTtsPendingRef = useRef<{ resolve: () => void; timeoutId: number } | null>(null);
@@ -254,10 +351,10 @@ export default function MobileDashboard() {
   }
 
   function speakViaApp(text: string): boolean {
-    if (sendAppBridge({ type: "TTS_SPEAK", text })) return true;
+    if (sendAppBridge({ type: "TTS_SPEAK", text, volume: effectiveVoiceVolume })) return true;
     try {
       if ((window as any).AndroidTTS?.speak) {
-        (window as any).AndroidTTS.speak(text);
+        (window as any).AndroidTTS.speak(text, effectiveVoiceVolume);
         return true;
       }
     } catch {}
@@ -311,7 +408,7 @@ export default function MobileDashboard() {
       if (!ss || typeof window === "undefined") return reject(new Error("speechSynthesis not available"));
       const utter = new SpeechSynthesisUtterance(text);
       utter.lang = "ko-KR"; utter.rate = 1; utter.pitch = 1;
-      utter.volume = Math.min(1, Math.max(0, voiceVolume));
+      utter.volume = effectiveVoiceVolume;
       const pickVoice = () => {
         const voices = ss.getVoices?.() || [];
         const ko = voices.find((v) => /ko[-_]KR/i.test(v.lang)) || voices.find((v) => v.lang?.startsWith("ko"));
@@ -347,6 +444,25 @@ export default function MobileDashboard() {
     } catch {}
     return true;
   }
+
+  useEffect(() => {
+    if (normalVoicePrimedRef.current) return;
+    const bosses = [...bossesTracked, ...bossesForgotten].filter((b, i, arr) =>
+      arr.findIndex((x) => x.id === b.id) === i
+    );
+    if (bosses.length === 0) return;
+    const now = Date.now();
+    for (const b of bosses) {
+      const dueAt = nextMsFor(b, now);
+      if (!Number.isFinite(dueAt)) continue;
+      const diff = dueAt - now;
+      if (diff <= 5 * MIN) alertedRef.current.add(`${b.id}:${dueAt}:T5`);
+      if (diff <= 1 * MIN) alertedRef.current.add(`${b.id}:${dueAt}:T1`);
+      if (diff <= 0) alertedRef.current.add(`${b.id}:${dueAt}:T0`);
+      if (diff <= -5 * MIN) alertedRef.current.add(`${b.id}:${dueAt}:T5L`);
+    }
+    normalVoicePrimedRef.current = true;
+  }, [bossesTracked, bossesForgotten]);
 
   useEffect(() => {
     if (!voiceEnabled) return;
@@ -391,6 +507,69 @@ export default function MobileDashboard() {
   }, [tick, voiceEnabled, voiceVolume, bossesTracked, bossesForgotten]);
 
   useEffect(() => {
+    if (!voiceEnabled || fixedRaw.length === 0) return;
+    const now = Date.now();
+    const curStart = cycleStartMs(now);
+    if (fixedCycleStartRef.current !== curStart) {
+      fixedAlertedRef.current = new Map();
+      fixedCycleStartRef.current = curStart;
+    }
+
+    const toSpeak: Array<{ id: string; tag: string; text: string }> = [];
+    for (const f of fixedRaw) {
+      const occ = fixedOccMs(f.genTime, now);
+      if (!Number.isFinite(occ)) continue;
+      const remain = occ - now;
+      const prev = fixedAlertedRef.current.get(f.id);
+
+      if (remain > 0 && remain <= 5 * MIN && !(prev?.has("T5"))) {
+        toSpeak.push({ id: f.id, tag: "T5", text: `${f.name} 보스 젠 5분 전입니다.` });
+      }
+      if (remain > 0 && remain <= 1 * MIN && !(prev?.has("T1"))) {
+        toSpeak.push({ id: f.id, tag: "T1", text: `${f.name} 보스 젠 1분 전입니다.` });
+      }
+      if (remain <= 0 && remain > -5 * MIN && !(prev?.has("T0"))) {
+        toSpeak.push({ id: f.id, tag: "T0", text: `${f.name} 보스 젠 시간입니다.` });
+      }
+      if (remain <= -5 * MIN && !(prev?.has("T5L"))) {
+        toSpeak.push({ id: f.id, tag: "T5L", text: `${f.name} 보스 젠 후 5분이 지났습니다.` });
+      }
+    }
+    if (toSpeak.length === 0) return;
+
+    (async () => {
+      for (const x of toSpeak) {
+        await enqueueSpeak(x.text);
+      }
+    })().catch(() => {});
+
+    for (const x of toSpeak) {
+      const set = fixedAlertedRef.current.get(x.id) ?? new Set<string>();
+      set.add(x.tag);
+      fixedAlertedRef.current.set(x.id, set);
+    }
+  }, [tick, voiceEnabled, fixedRaw]);
+
+  useEffect(() => {
+    if (fixedVoicePrimedRef.current || fixedRaw.length === 0) return;
+    const now = Date.now();
+    const seeded = new Map<string, Set<string>>();
+    for (const f of fixedRaw) {
+      const occ = fixedOccMs(f.genTime, now);
+      if (!Number.isFinite(occ)) continue;
+      const remain = occ - now;
+      const set = new Set<string>();
+      if (remain <= 5 * MIN) set.add("T5");
+      if (remain <= 1 * MIN) set.add("T1");
+      if (remain <= 0) set.add("T0");
+      if (remain <= -5 * MIN) set.add("T5L");
+      if (set.size > 0) seeded.set(f.id, set);
+    }
+    fixedAlertedRef.current = seeded;
+    fixedVoicePrimedRef.current = true;
+  }, [fixedRaw]);
+
+  useEffect(() => {
     try {
       const raw = sessionStorage.getItem(VOICE_DEDUP_KEY);
       if (!raw) return;
@@ -410,8 +589,9 @@ export default function MobileDashboard() {
       const data = await postJSON<any>("/v1/dashboard/bosses", forEdit ? { forEdit: true } : undefined);
       setTracked(data.tracked ?? []);
       setForgotten(data.forgotten ?? []);
+      setFixedRaw(((data.fixed ?? []) as any[]).map((f) => ({ ...f, genTime: f.genTime == null ? null : Number(f.genTime) })));
     } catch {
-      setTracked([]); setForgotten([]);
+      setTracked([]); setForgotten([]); setFixedRaw([]);
     } finally {
       setLoading(false);
     }
@@ -508,6 +688,226 @@ export default function MobileDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bossesTracked, bossesForgotten, tick]);
 
+  const filteredAll = useMemo(() => {
+    const q = query.trim();
+    if (!q) return sortedAll;
+    const tokens = q.split(/\s+/g).filter(Boolean);
+    return sortedAll.filter((b) => {
+      const hay = `${b.name} ${b.location ?? ""}`;
+      const hayLower = hay.toLowerCase();
+      const hayCho = toChosung(hay);
+      return tokens.every((t) => {
+        const tLower = t.toLowerCase();
+        if (hayLower.includes(tLower)) return true;
+        if (isChosungToken(t)) return hayCho.includes(t);
+        return false;
+      });
+    });
+  }, [query, sortedAll]);
+
+  const mobileMixedRows = useMemo(() => {
+    const now = Date.now();
+    const fixedRows = fixedRaw.map((f) => ({
+      kind: "fixed" as const,
+      id: `fixed-${f.id}`,
+      remain: fixedDisplayRemainMs(f, now),
+      fixed: f,
+    }));
+    const normalRows = filteredAll.map((b) => ({
+      kind: "normal" as const,
+      id: `normal-${b.id}`,
+      remain: remainingMsForMobile(b, now, overdueStateRef),
+      boss: b,
+    }));
+    return [...normalRows, ...fixedRows].sort((a, b) => a.remain - b.remain);
+  }, [filteredAll, fixedRaw, tick]);
+
+  const findBossByCommandName = useCallback((nameQuery: string): BossDto | null => {
+    const q = nameQuery.trim().toLowerCase();
+    if (!q) return null;
+    const merged = [...bossesTracked, ...bossesForgotten];
+    const seen = new Set<string>();
+    const dedup = merged.filter((b) => (seen.has(b.id) ? false : (seen.add(b.id), true)));
+    const byExact = dedup.find((b) => b.name.trim().toLowerCase() === q);
+    if (byExact) return byExact;
+    return dedup.find((b) => `${b.name} ${b.location ?? ""}`.toLowerCase().includes(q)) ?? null;
+  }, [bossesTracked, bossesForgotten]);
+
+  const runInitCutAt = useCallback(async (cutAtIso: string, confirmMessage: string, successMessage: string) => {
+    const normals: BossDto[] = [...bossesTracked, ...bossesForgotten];
+    const seen = new Set<string>();
+    const bosses = normals.filter((b) => (seen.has(b.id) ? false : (seen.add(b.id), true)));
+    if (bosses.length === 0) {
+      alert("초기화할 보스가 없습니다.");
+      return false;
+    }
+    if (!confirm(confirmMessage)) return false;
+
+    for (const b of bosses) {
+      try {
+        await postJSON(`/v1/dashboard/bosses/${b.id}/cut`, { cutAtIso, mode: "TREASURY", items: [], participants: [] });
+      } catch (e) {
+        console.warn("[mobile-init-cut] failed:", b.name, e);
+      }
+    }
+    for (const b of bosses) {
+      const wasNoHistory = !b.lastCutAt && Number((b as any)?.dazeCount ?? 0) === 0;
+      if (!wasNoHistory) continue;
+      try {
+        const timelineId = await latestTimelineIdForBossName(b.name);
+        if (timelineId) await postJSON(`/v1/boss-timelines/${timelineId}/daze`, { atIso: new Date().toString() });
+      } catch (e) {
+        console.warn("[mobile-init-daze] failed:", b.name, e);
+      }
+    }
+    alert(successMessage);
+    await load();
+    return true;
+  }, [bossesTracked, bossesForgotten]);
+
+  const executeBotCommand = useCallback(async (rawText: string) => {
+    const text = rawText.trim();
+    if (!text) return;
+
+    if (text === "명령어") {
+      setCommandHelpOpen(true);
+      setCommandText("");
+      return;
+    }
+
+    if (text.startsWith("-v ")) {
+      const message = text.slice(3).trim();
+      if (!message) {
+        alert("읽을 메세지를 입력해주세요.");
+        return;
+      }
+      await speakKorean(message);
+      setCommandText("");
+      return;
+    }
+
+    if (text === "보탐 초기화") {
+      const now = new Date();
+      const ok = await runInitCutAt(
+        now.toString(),
+        `모든 보스를 현재 시각(${now.toLocaleString()})으로 컷 처리합니다.\n'이력 전무' 보스는 1회 멍까지 자동 처리합니다.`,
+        "보스타임을 현재 시각으로 초기화했습니다."
+      );
+      if (ok) setCommandText("");
+      return;
+    }
+
+    const lower = text.toLowerCase();
+    const topBoss = sortedAll[0] ?? null;
+    const cutAliases = new Set(["컷", "ㅋ", "z"]);
+    const dazeAliases = new Set(["멍", "ㅁ", "a"]);
+
+    if (cutAliases.has(lower)) {
+      if (!topBoss) {
+        alert("처리할 보스가 없습니다.");
+        return;
+      }
+      const ok = await instantCut(
+        topBoss,
+        async () => {
+          clearOverdueFor(topBoss.id);
+          await load();
+        },
+        voiceEnabled ? enqueueSpeak : undefined,
+        false,
+        false
+      );
+      if (ok && voiceEnabled) {
+        try { await speakKorean(`${topBoss.name} 컷 처리되었습니다.`); } catch {}
+      }
+      if (ok) setCommandText("");
+      return;
+    }
+
+    if (dazeAliases.has(lower)) {
+      if (!topBoss) {
+        alert("처리할 보스가 없습니다.");
+        return;
+      }
+      const ok = await addDaze(
+        topBoss,
+        async () => {
+          clearOverdueFor(topBoss.id);
+          await load();
+        },
+        voiceEnabled ? enqueueSpeak : undefined,
+        user?.clanId ?? localStorage.getItem("clanId"),
+        false,
+        false
+      );
+      if (ok && voiceEnabled) {
+        try { await speakKorean(`${topBoss.name} 멍 처리되었습니다.`); } catch {}
+      }
+      if (ok) setCommandText("");
+      return;
+    }
+
+    const namedCommand = /^(.*?)\s+(컷|멍)$/.exec(text);
+    if (namedCommand) {
+      const bossName = namedCommand[1]?.trim() ?? "";
+      const action = namedCommand[2];
+      const boss = findBossByCommandName(bossName);
+      if (!boss) {
+        alert("입력한 보스명을 찾을 수 없습니다.");
+        return;
+      }
+
+      if (action === "컷") {
+        const ok = await instantCut(
+          boss,
+          async () => {
+            clearOverdueFor(boss.id);
+            await load();
+          },
+          voiceEnabled ? enqueueSpeak : undefined,
+          false,
+          false
+        );
+        if (ok && voiceEnabled) {
+          try { await speakKorean(`${boss.name} 컷 처리되었습니다.`); } catch {}
+        }
+        if (ok) setCommandText("");
+        return;
+      }
+
+      const ok = await addDaze(
+        boss,
+        async () => {
+          clearOverdueFor(boss.id);
+          await load();
+        },
+        voiceEnabled ? enqueueSpeak : undefined,
+        user?.clanId ?? localStorage.getItem("clanId"),
+        false,
+        false
+      );
+      if (ok && voiceEnabled) {
+        try { await speakKorean(`${boss.name} 멍 처리되었습니다.`); } catch {}
+      }
+      if (ok) setCommandText("");
+      return;
+    }
+
+    alert("지원 명령어: -v 메세지 / 보탐 초기화 / [보스명] 컷 / [보스명] 멍 / 컷(ㅋ,z) / 멍(ㅁ,a)");
+  }, [sortedAll, user?.clanId, voiceEnabled, bossesTracked, bossesForgotten, findBossByCommandName, runInitCutAt]);
+
+  const submitCommand = useCallback(async () => {
+    if (commandSaving) return;
+    setCommandSaving(true);
+    try {
+      await executeBotCommand(commandText);
+    } catch (e: any) {
+      alert(e?.message ?? "명령 실행 실패");
+    } finally {
+      setCommandSaving(false);
+    }
+  }, [commandSaving, commandText, executeBotCommand]);
+
   const toggleExcludedBoss = useCallback((bossId: string) => {
     setExcludedBossIds((prev) => {
       const next = new Set(prev);
@@ -558,55 +958,112 @@ export default function MobileDashboard() {
     }
   }, [bossListEditMode, bossListSaving, excludedBossIds, user?.clanId, user?.id]);
 
+  const cancelBossListEdit = useCallback(() => {
+    if (bossListSaving) return;
+    setExcludedBossIds(new Set());
+    setBossListEditMode(false);
+  }, [bossListSaving]);
+
   return (
     <div className="h-[100dvh] overflow-y-auto bg-slate-950 text-white text-[clamp(22px,5vw,32px)]">
       <div className="py-5">
         <div className="sticky top-0 z-40 px-[5%] pb-4">
-          <div className="rounded-2xl border border-white/10 bg-slate-950/85 backdrop-blur p-4 flex items-center gap-4">
-            <button
-              type="button"
-              className={`px-4 py-2 rounded-xl text-[0.85em] font-semibold border ${voiceEnabled ? "border-emerald-300/60 text-emerald-200 bg-emerald-500/10" : "border-white/20 text-white/60 bg-white/5"}`}
-              onClick={() => setVoiceEnabled((v) => !v)}
-            >
-              {voiceEnabled ? "음성 ON" : "음소거"}
-            </button>
-            <button
-              type="button"
-              className="px-4 py-2 rounded-xl text-[0.85em] font-semibold border border-white/20 text-white/80 bg-white/5 hover:bg-white/10"
-              onClick={() => {
-                enqueueSpeak("이 버튼으로 소리를 듣고 음량을 조절해주세요.");
-              }}
-            >
-              음성 테스트
-            </button>
-            <div className="flex-1">
-              <div className="text-[0.75em] text-white/60 mb-2">볼륨</div>
+          <div className="rounded-2xl border border-white/10 bg-slate-950/85 backdrop-blur p-4">
+            <div className="flex items-center gap-4">
+              <button
+                type="button"
+                className={`px-4 py-2 rounded-xl text-[0.85em] font-semibold border ${voiceEnabled ? "border-emerald-300/60 text-emerald-200 bg-emerald-500/10" : "border-white/20 text-white/60 bg-white/5"}`}
+                onClick={() => setVoiceEnabled((v) => !v)}
+              >
+                {voiceEnabled ? "음성 ON" : "음소거"}
+              </button>
+              <div className="flex-1">
+                <div className="text-[0.75em] text-white/60 mb-2">볼륨</div>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={Math.round(voiceVolume * 100)}
+                  onChange={(e) => setVoiceVolume(Number(e.currentTarget.value) / 100)}
+                  className="w-full"
+                />
+              </div>
+            </div>
+            <div className="mt-4">
               <input
-                type="range"
-                min={0}
-                max={100}
-                value={Math.round(voiceVolume * 100)}
-                onChange={(e) => setVoiceVolume(Number(e.currentTarget.value) / 100)}
-                className="w-full"
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.currentTarget.value)}
+                placeholder="보스 검색 (초성가능)"
+                className="w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-[0.9em] text-white placeholder:text-white/45"
               />
             </div>
           </div>
         </div>
         {loading ? (
           <div className="px-[5%] py-3 text-[0.9em] text-white/70">불러오는 중…</div>
-        ) : sortedAll.length === 0 ? (
+        ) : mobileMixedRows.length === 0 ? (
           <div className="px-[5%] py-3 text-[0.9em] text-white/60">표시할 보스가 없습니다.</div>
         ) : (
           <ul className="space-y-4 pb-28">
-            {sortedAll.map((b) => {
+            {mobileMixedRows.map((row) => {
+              if (row.kind === "fixed") {
+                const f = row.fixed;
+                const nms = row.remain;
+                const r = remainLabelFromDiff(nms);
+                const isSoon = r.tone === "soon";
+                const isWarn10 = r.tone === "warn10";
+                const isWarn15 = r.tone === "warn15";
+                return (
+                  <li key={row.id} className="px-[5%]">
+                    <div className={`relative w-full rounded-2xl shadow-sm border ${
+                      isSoon
+                        ? "ring-2 ring-rose-400 bg-rose-500/10 animate-blink"
+                        : isWarn10
+                        ? "border-amber-400/80 bg-amber-500/10"
+                        : isWarn15
+                        ? "border-yellow-300/80 bg-yellow-500/10"
+                        : "border-white/15 bg-white/5"
+                    } p-4`}>
+                      <div className="flex items-center justify-between">
+                        <div className="font-semibold text-[1.1em]">{f.name}</div>
+                        <div className={`text-[0.85em] ${isSoon ? "text-rose-300" : "text-white/70"}`}>{r.text}</div>
+                      </div>
+
+                      <div className="mt-1 flex items-center justify-between">
+                        <div className="text-[0.85em] text-white/70 truncate">
+                          젠 위치: <span className="font-medium text-white/90">{f.location ?? "—"}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            instantCut(
+                              f as unknown as BossDto,
+                              async () => {
+                                await load();
+                              },
+                              voiceEnabled ? enqueueSpeak : undefined
+                            )
+                          }
+                          className="px-8 py-2.5 rounded-lg bg-rose-500/80 text-white text-[0.85em] hover:bg-rose-500 active:opacity-80"
+                        >
+                          컷
+                        </button>
+                      </div>
+                    </div>
+                  </li>
+                );
+              }
+
+              const b = row.boss;
               const isExcludedInEdit = bossListEditMode && excludedBossIds.has(b.id);
-              const nms = remainingMsForMobile(b, Date.now(), overdueStateRef);
+              const nms = row.remain;
               const r = remainLabelFromDiff(nms);
               const isSoon = r.tone === "soon";
               const isWarn10 = r.tone === "warn10";
               const isWarn15 = r.tone === "warn15";
               return (
-                <li key={b.id} className="px-[5%]">
+                <li key={row.id} className="px-[5%]">
                   <div className={`relative w-full rounded-2xl shadow-sm border ${
                     !bossListEditMode && isSoon
                       ? "ring-2 ring-rose-400 bg-rose-500/10 animate-blink"
@@ -698,9 +1155,9 @@ export default function MobileDashboard() {
                           )}
                         </div>
                       </div>
-                      {!bossListEditMode && (Number((b as any).dazeCount ?? 0) > 0 || computeMissCount(b) > 0) && (
-                        <div className="mt-2 text-[0.8em] text-white/60">
-                          {Number((b as any).dazeCount ?? 0) > 0 && (
+                    {!bossListEditMode && (Number((b as any).dazeCount ?? 0) > 0 || computeMissCount(b) > 0) && (
+                      <div className="mt-2 text-[0.8em] text-white/60">
+                          {computeMissCount(b) === 0 && Number((b as any).dazeCount ?? 0) > 0 && (
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-200 border border-amber-300/60 mr-2">
                               멍 {Number((b as any).dazeCount ?? 0)}회
                             </span>
@@ -727,6 +1184,18 @@ export default function MobileDashboard() {
                 </div>
               </div>
             </li>
+            {bossListEditMode && (
+              <li className="px-[5%]">
+                <div
+                  onClick={cancelBossListEdit}
+                  className="w-full rounded-2xl shadow-sm border border-white/15 bg-white/5 p-4 cursor-pointer"
+                >
+                  <div className="flex min-h-[92px] items-center justify-center text-center text-[1.05em] font-semibold text-white/80">
+                    취소
+                  </div>
+                </div>
+              </li>
+            )}
           </ul>
         )}
       </div>
@@ -734,6 +1203,22 @@ export default function MobileDashboard() {
       {/* 하단 고정 버튼 영역 */}
       <div className="fixed bottom-0 left-0 right-0 z-30">
         <div className="w-full px-[5%] py-4 bg-slate-950/95 backdrop-blur border-t border-white/10">
+          <div className="mb-3">
+            <input
+              type="text"
+              value={commandText}
+              onChange={(e) => setCommandText(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if ((e.nativeEvent as KeyboardEvent).isComposing || e.keyCode === 229) return;
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void submitCommand();
+                }
+              }}
+              placeholder='보탐봇 명령어 입력 "명령어" 라고 입력하면 명령어 목록이 나옵니다.'
+              className="w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-[0.9em] text-white placeholder:text-white/45"
+            />
+          </div>
           <div className="grid grid-cols-3 gap-3">
           <button
             type="button"
@@ -759,6 +1244,14 @@ export default function MobileDashboard() {
           </div>
         </div>
       </div>
+      <Modal
+        open={commandHelpOpen}
+        onClose={() => setCommandHelpOpen(false)}
+        title="보탐봇 명령어"
+        maxWidth="max-w-[560px]"
+      >
+        <pre className="whitespace-pre-wrap text-sm leading-7 text-white/85">{BOT_COMMAND_HELP}</pre>
+      </Modal>
     </div>
   );
 }

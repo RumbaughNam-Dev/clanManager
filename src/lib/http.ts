@@ -43,10 +43,10 @@ async function handleError(res: Response, url: string, method: string): Promise<
 }
 
 /**
- * ✅ 모든 네트워크 요청을 실제로는 POST로 전송
+ * 네트워크 요청을 원래 의도한 HTTP 메서드 그대로 전송
  *  - URL 쿼리스트링은 그대로 유지(백엔드에서 @Query()로 읽기 가능)
  *  - body가 주어지면 JSON으로 전송
- *  - 디버깅용으로 X-Orig-Method 헤더에 원래 의도한 메서드를 표시
+ *  - 디버깅용으로 X-Orig-Method 헤더에 원래 메서드를 함께 표시
  */
 export async function requestJSON<T>(
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
@@ -72,8 +72,8 @@ export async function requestJSON<T>(
     fetchBody = JSON.stringify(body);
   }
 
-  const actualMethod: "POST" = "POST";
-  console.log("[http.ts] send", method, "=> POST", url); // ← ★
+  const actualMethod = method;
+  console.log("[http.ts] send", method, "=>", actualMethod, url); // ← ★
 
   const res = await fetch(url, {
     ...extraInit,
@@ -92,7 +92,7 @@ export async function requestJSON<T>(
   throw new Error(`Expected JSON but got "${ct || "unknown"}". Body(head 200ch): ${text.slice(0, 200)}`);
 }
 
-/** 헬퍼들 — 내부적으로는 전부 requestJSON()을 타서 실제 POST로 나감 */
+/** 헬퍼들 */
 export async function getJSON<T>(path: string, init?: RequestInit): Promise<T> {
   return requestJSON<T>("GET", path, undefined, init);
 }

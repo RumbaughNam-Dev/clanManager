@@ -33,6 +33,14 @@ const MISSED_WARN_MS = 3 * MIN;
 /** 배지 오버레이 위치(카드 기준 비율) — 요구 반영: 우상단 테두리 겹치기 */
 const BADGE_LEFT = "80%";
 const BADGE_TOP  = "33.333%";
+const BOT_COMMAND_HELP = [
+  "-v 메세지 : 메세지를 음성으로 읽어줍니다.",
+  "보탐 초기화 : 현재 시각으로 보스타임을 초기화합니다.",
+  "[보스명] 컷 : 입력한 보스를 현재 시각으로 컷 처리합니다.",
+  "컷 / ㅋ / z : 현재 목록 최상단 보스를 컷 처리합니다.",
+  "[보스명] 멍 : 입력한 보스를 현재 시각으로 멍 처리합니다.",
+  "멍 / ㅁ / a : 현재 목록 최상단 보스를 멍 처리합니다.",
+].join("\n");
 
 const OVERDUE_STATE_KEY = "overdueStateMap";
 
@@ -350,6 +358,7 @@ export default function LoggedInDashboard({
 
   // ⬇️ 추가: 액션 후 억제 상태(끝나는 ms) 저장
   const actionSilenceRef = useRef<Map<string, number>>(new Map());
+  const recentDazeFeedbackRef = useRef<Map<string, number>>(new Map());
 
 
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(() => {
@@ -363,29 +372,21 @@ export default function LoggedInDashboard({
   const [voiceVolume, setVoiceVolume] = useState<number>(() => {
     try {
       const v = localStorage.getItem("voiceVolume");
-      const n = v == null ? 0.8 : Number(v);
-      if (!Number.isFinite(n)) return 0.8;
+      const n = v == null ? 1 : Number(v);
+      if (!Number.isFinite(n)) return 1;
       return Math.min(1, Math.max(0, n));
-    } catch { return 0.8; }
+    } catch { return 1; }
   });
   useEffect(() => {
     try { localStorage.setItem("voiceVolume", String(voiceVolume)); } catch {}
   }, [voiceVolume]);
-  const [voiceBoosted, setVoiceBoosted] = useState<boolean>(() => {
-    try {
-      const v = localStorage.getItem("voiceBoosted");
-      return v === "1";
-    } catch { return false; }
-  });
-  useEffect(() => {
-    try { localStorage.setItem("voiceBoosted", voiceBoosted ? "1" : "0"); } catch {}
-  }, [voiceBoosted]);
 
   const [quickCutText, setQuickCutText] = useState("");
   const [quickSaving, setQuickSaving] = useState(false);
+  const [commandHelpOpen, setCommandHelpOpen] = useState(false);
   const [uiTick, setUiTick] = useState(0);
   const [updatePopupOpen, setUpdatePopupOpen] = useState(false);
-  const [updateHide7d, setUpdateHide7d] = useState(false);
+  const [updateHideForever, setUpdateHideForever] = useState(false);
 
   useEffect(() => {
     const t = setInterval(() => setUiTick((x) => (x + 1) % 3600), 1000);
@@ -402,13 +403,11 @@ export default function LoggedInDashboard({
 
   useEffect(() => {
     try {
-      const until = localStorage.getItem("update-popup-hide-until");
-      if (until) {
-        const ts = Number(until);
-        if (Number.isFinite(ts) && ts > Date.now()) {
-          setUpdatePopupOpen(false);
-          return;
-        }
+      localStorage.removeItem("update-popup-hide-until");
+      const hidden = localStorage.getItem("update-popup-hide-forever-20260302");
+      if (hidden === "1") {
+        setUpdatePopupOpen(false);
+        return;
       }
     } catch {}
     setUpdatePopupOpen(true);
@@ -419,11 +418,20 @@ export default function LoggedInDashboard({
   const missedWarnSetRef = useRef<Set<string>>(new Set());
   const timelineIdCacheRef = useRef<Map<string, string>>(new Map());
 
-  const fixedAlertedMapRef = useRef<Map<string, Set<number>>>(new Map());
+  const fixedAlertedMapRef = useRef<Map<string, Set<string>>>(new Map());
   const fixedCycleStartRef = useRef<number>(0);
 
   function isSilenced(id: string, now = Date.now()) {
     return (actionSilenceRef.current.get(id) ?? 0) > now;
+  }
+
+  function hasRecentDazeFeedback(id: string, now = Date.now()) {
+    const until = recentDazeFeedbackRef.current.get(id) ?? 0;
+    if (until <= now) {
+      recentDazeFeedbackRef.current.delete(id);
+      return false;
+    }
+    return true;
   }
 
   // ──────────────── 시간 유틸 (고정보스) ────────────────
@@ -724,7 +732,6 @@ export default function LoggedInDashboard({
 
   /** ───────── 미입력 계산 ───────── */
   function computeEffectiveMiss(b: BossDto, now = Date.now()): number {
-    // 비고정 보스 전체 대상으로 계산. respawn 없으면 미입력 계산 불가 → 0
     const respawnMin = Number(b.respawn ?? 0);
     if (!Number.isFinite(respawnMin) || respawnMin <= 0) return 0;
     const respawnMs = respawnMin * 60 * 1000;
@@ -740,11 +747,10 @@ export default function LoggedInDashboard({
     const lastMs = toMsLoose(b.lastCutAt);
     if (!Number.isFinite(lastMs) || now <= lastMs) return 0;
 
-    const diff = now - lastMs;
-    if (diff < respawnMs + OVERDUE_GRACE_MS) return 0;
+    const overdueMs = now - (lastMs + respawnMs);
+    if (overdueMs < OVERDUE_GRACE_MS) return 0;
 
-    const overdueStart = lastMs + respawnMs + OVERDUE_GRACE_MS;
-    const missed = 1 + Math.floor((now - overdueStart) / respawnMs);
+    const missed = 1 + Math.floor((overdueMs - OVERDUE_GRACE_MS) / respawnMs);
     return missed;
   }
 
@@ -791,6 +797,21 @@ export default function LoggedInDashboard({
 
   /** 비고정: 음성 알림(5/1분 전) + 지남 3분 경고(한 번) */
   const [alertedMap, setAlertedMap] = useState<Map<string, Set<number>>>(new Map());
+  const normalVoicePrimedRef = useRef(false);
+  useEffect(() => {
+    if (normalVoicePrimedRef.current || filteredAll.length === 0) return;
+    const seeded = new Map<string, Set<number>>();
+    for (const b of filteredAll) {
+      const r = remainingMsFor(b);
+      const set = new Set<number>();
+      if (r <= 5 * MIN) set.add(5 * MIN);
+      if (r <= 1 * MIN) set.add(1 * MIN);
+      if (r <= -MISSED_WARN_MS) missedWarnSetRef.current.add(b.id);
+      if (set.size > 0) seeded.set(b.id, set);
+    }
+    if (seeded.size > 0) setAlertedMap(seeded);
+    normalVoicePrimedRef.current = true;
+  }, [filteredAll]);
   useEffect(() => {
     if (!voiceEnabled) return;
 
@@ -885,19 +906,13 @@ export default function LoggedInDashboard({
     return cutDate === today;
   }
 
-  // 보스 초기화(+5분) + ‘이력 전무’ 1회 멍
-  async function runInitCutForAll() {
-    if (initBusy) return;
-    const baseMs = parseTodayHHMM(initTime);
-    if (!baseMs) { alert("시간 형식은 HH:mm 입니다. 예) 07:30"); return; }
-
-    const cutAtIso = new Date(baseMs + 5 * 60 * 1000).toString();
+  async function runInitCutAt(cutAtIso: string, confirmMessage: string, options?: { closeModal?: boolean; successMessage?: string }) {
     const normals: BossDto[] = [...trackedRaw, ...forgottenRaw];
     const seen = new Set<string>();
     const bosses = normals.filter(b => (seen.has(b.id) ? false : (seen.add(b.id), true)));
     if (bosses.length === 0) { alert("초기화할 보스가 없습니다."); return; }
 
-    if (!confirm(`모든 보스를 오늘 ${initTime} + 5분(${new Date(cutAtIso).toLocaleString()})으로 컷 처리합니다.\n'이력 전무' 보스는 1회 멍까지 자동 처리합니다.`)) return;
+    if (!confirm(confirmMessage)) return;
 
     setInitBusy(true);
     try {
@@ -914,19 +929,34 @@ export default function LoggedInDashboard({
           if (timelineId?.id) await postJSON(`/v1/boss-timelines/${timelineId.id}/daze`, { atIso: new Date().toString() });
         } catch (e) { console.warn("[init-daze] failed:", b.name, e); }
       }
-      alert("보스 시간 초기화 완료!");
+      alert(options?.successMessage ?? "보스 시간 초기화 완료!");
       await loadBosses();
       await loadRecentHistory();
       clearSearch();
-      setInitOpen(false);
+      if (options?.closeModal) setInitOpen(false);
     } finally {
       setInitBusy(false);
     }
   }
 
+  // 보스 초기화(+5분) + ‘이력 전무’ 1회 멍
+  async function runInitCutForAll() {
+    if (initBusy) return;
+    const baseMs = parseTodayHHMM(initTime);
+    if (!baseMs) { alert("시간 형식은 HH:mm 입니다. 예) 07:30"); return; }
+
+    const cutAtIso = new Date(baseMs + 5 * 60 * 1000).toString();
+    await runInitCutAt(
+      cutAtIso,
+      `모든 보스를 오늘 ${initTime} + 5분(${new Date(cutAtIso).toLocaleString()})으로 컷 처리합니다.\n'이력 전무' 보스는 1회 멍까지 자동 처리합니다.`,
+      { closeModal: true }
+    );
+  }
+
   // ──────────────── 공통 도우미 ────────────────
   function delay(ms: number) { return new Promise((res) => setTimeout(res, ms)); }
   const speakQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const effectiveVoiceVolume = Math.min(1, 0.35 + voiceVolume * 0.65);
 
   function playBeep(durationMs = 300) {
     const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext;
@@ -934,24 +964,42 @@ export default function LoggedInDashboard({
     const ctx = new AudioCtx();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    const boost = voiceBoosted ? 3 : 1;
-    osc.type = "sine"; osc.frequency.value = 880; gain.gain.value = 0.08 * voiceVolume * boost;
+    osc.type = "square";
+    osc.frequency.value = 980;
+    gain.gain.value = Math.min(0.28, 0.12 * Math.max(0.5, effectiveVoiceVolume));
     osc.connect(gain); gain.connect(ctx.destination); osc.start();
     return new Promise<void>((resolve) => {
       setTimeout(() => { osc.stop(); ctx.close().finally(() => resolve()); }, durationMs);
     });
   }
+
+  function pickPreferredKoreanVoice(voices: SpeechSynthesisVoice[]) {
+    const koVoices = voices.filter((v) => /ko[-_]KR/i.test(v.lang) || v.lang?.startsWith("ko"));
+    if (koVoices.length === 0) return null;
+
+    const score = (v: SpeechSynthesisVoice) => {
+      const name = `${v.name} ${v.voiceURI}`.toLowerCase();
+      let s = 0;
+      if (/google|enhanced|premium|high quality/.test(name)) s += 5;
+      if (/samsung|microsoft|apple|siri/.test(name)) s += 3;
+      if (/female|여성/.test(name)) s += 1;
+      if (v.default) s += 1;
+      return s;
+    };
+
+    return [...koVoices].sort((a, b) => score(b) - score(a))[0] ?? koVoices[0];
+  }
+
   function speakNow(text: string): Promise<void> {
     return new Promise((resolve, reject) => {
       const ss: SpeechSynthesis | undefined = (window as any).speechSynthesis;
       if (!ss || typeof window === "undefined") return reject(new Error("speechSynthesis not available"));
       const utter = new SpeechSynthesisUtterance(text);
       utter.lang = "ko-KR"; utter.rate = 1; utter.pitch = 1;
-      const boost = voiceBoosted ? 3 : 1;
-      utter.volume = voiceVolume * boost;
+      utter.volume = effectiveVoiceVolume;
       const pickVoice = () => {
         const voices = ss.getVoices?.() || [];
-        const ko = voices.find((v) => /ko[-_]KR/i.test(v.lang)) || voices.find((v) => v.lang?.startsWith("ko"));
+        const ko = pickPreferredKoreanVoice(voices);
         if (ko) utter.voice = ko; ss.speak(utter);
       };
       utter.onend = () => resolve(); utter.onerror = () => reject(new Error("speech error"));
@@ -965,7 +1013,7 @@ export default function LoggedInDashboard({
   }
 
   function speakKorean(text: string): Promise<void> {
-    const job = speakQueueRef.current.then(() => speakNow(text));
+    const job = speakQueueRef.current.then(async () => { await speakNow(text); });
     speakQueueRef.current = job.catch(() => {});
     return job;
   }
@@ -1040,6 +1088,12 @@ export default function LoggedInDashboard({
       setBossListSaving(false);
     }
   }, [bossListEditMode, bossListSaving, excludedBossIds, loadBosses, user?.clanId, user?.id]);
+
+  const cancelBossListEdit = useCallback(() => {
+    if (bossListSaving) return;
+    setExcludedBossIds(new Set());
+    setBossListEditMode(false);
+  }, [bossListSaving]);
 
   function LocationHover({
     text, bossId, hoverBossId, setHoverBossId, disabled = false,
@@ -1127,6 +1181,7 @@ export default function LoggedInDashboard({
     const canDaze = !!b.isRandom;
     const dazeCount = Number((b as any)?.dazeCount ?? 0);
     const missCount = computeEffectiveMiss(b);
+    const showRecentDazeFeedback = hasRecentDazeFeedback(b.id, now);
 
     const afterLabel = remain < 0 ? "지남" : "뒤 예상";
     const timeLabel = bossListEditMode
@@ -1145,9 +1200,14 @@ export default function LoggedInDashboard({
                 미입력 {missCount}
               </span>
             )}
-            {dazeCount > 0 && (
+            {missCount === 0 && dazeCount > 0 && (
               <span className="rounded-[6px] border border-amber-300 bg-amber-50/90 px-1.5 py-[1px] text-[10px] font-medium text-amber-700 shadow">
                 멍 {dazeCount}
+              </span>
+            )}
+            {showRecentDazeFeedback && (
+              <span className="rounded-[6px] border border-emerald-300 bg-emerald-50/90 px-1.5 py-[1px] text-[10px] font-medium text-emerald-700 shadow">
+                멍 처리됨
               </span>
             )}
           </div>
@@ -1297,6 +1357,26 @@ export default function LoggedInDashboard({
   }, [fixedRaw, uiTick]);
 
   // 고정 보스 음성 알림
+  const fixedVoicePrimedRef = useRef(false);
+  useEffect(() => {
+    if (fixedVoicePrimedRef.current || fixedSorted.length === 0) return;
+    const now = Date.now();
+    const seeded = new Map<string, Set<string>>();
+    for (const f of fixedSorted) {
+      const occ = fixedOccMs(f.genTime, now);
+      if (!Number.isFinite(occ)) continue;
+      const remain = occ - now;
+      const set = new Set<string>();
+      if (remain <= 5 * MIN) set.add("T5");
+      if (remain <= 1 * MIN) set.add("T1");
+      if (remain <= 0) set.add("T0");
+      if (remain <= -5 * MIN) set.add("T5L");
+      if (set.size > 0) seeded.set(f.id, set);
+    }
+    fixedAlertedMapRef.current = seeded;
+    fixedVoicePrimedRef.current = true;
+  }, [fixedSorted]);
+
   useEffect(() => {
     if (!voiceEnabled || fixedSorted.length === 0) return;
     const now = Date.now();
@@ -1305,126 +1385,172 @@ export default function LoggedInDashboard({
       fixedAlertedMapRef.current = new Map();
       fixedCycleStartRef.current = curStart;
     }
-    const toSpeak: Array<{ id: string; name: string; threshold: number }> = [];
+    const toSpeak: Array<{ id: string; name: string; tag: string; text: string }> = [];
     for (const f of fixedSorted) {
       const occ = fixedOccMs(f.genTime, now);
       if (!Number.isFinite(occ)) continue;
       const remain = occ - now;
-      if (!(remain > 0)) continue;
       if (occ >= nextCycleStartMs(curStart)) continue;
 
       const prev = fixedAlertedMapRef.current.get(f.id);
       for (const th of ALERT_THRESHOLDS) {
-        if (remain <= th && !(prev?.has(th))) toSpeak.push({ id: f.id, name: f.name, threshold: th });
+        const tag = th === 5 * MIN ? "T5" : "T1";
+        const text = `${f.name} 보스 젠 ${th === 5 * MIN ? "5분" : "1분"} 전입니다.`;
+        if (remain > 0 && remain <= th && !(prev?.has(tag))) toSpeak.push({ id: f.id, name: f.name, tag, text });
+      }
+      if (remain <= 0 && remain > -5 * MIN && !(prev?.has("T0"))) {
+        toSpeak.push({ id: f.id, name: f.name, tag: "T0", text: `${f.name} 보스 젠 시간입니다.` });
+      }
+      if (remain <= -5 * MIN && !(prev?.has("T5L"))) {
+        toSpeak.push({ id: f.id, name: f.name, tag: "T5L", text: `${f.name} 보스 젠 후 5분이 지났습니다.` });
       }
     }
     if (toSpeak.length === 0) return;
     (async () => {
       for (const x of toSpeak) {
-        const minStr = x.threshold === 5 * MIN ? "5분" : "1분";
-        try { await speakKorean(`${x.name} 보스 젠 ${minStr} 전입니다.`); } catch { await playBeep(250); }
+        try { await speakKorean(x.text); } catch { await playBeep(250); }
         await delay(100);
       }
     })().catch(() => {});
     for (const x of toSpeak) {
-      const set = fixedAlertedMapRef.current.get(x.id) ?? new Set<number>();
-      set.add(x.threshold);
+      const set = fixedAlertedMapRef.current.get(x.id) ?? new Set<string>();
+      set.add(x.tag);
       fixedAlertedMapRef.current.set(x.id, set);
     }
   }, [fixedSorted, uiTick, voiceEnabled]);
 
-  /** 간편 컷 */
-  function parseQuickCut(text: string, list: BossDto[]) {
-    const s = text.trim();
-    if (!s) return null;
-    const parts = s.split(/\s+/);
-    if (parts.length < 2) return null;
+  function findBossByCommandName(nameQuery: string): BossDto | null {
+    const q = nameQuery.trim().toLowerCase();
+    if (!q) return null;
 
-    const timeRaw = parts[0];
-    const nameQuery = parts.slice(1).join(" ").toLowerCase();
+    const byExact = allBossesSortedByNext.find((b) => b.name.trim().toLowerCase() === q);
+    if (byExact) return byExact;
 
-    let hh = NaN, mm = NaN;
-    if (/^\d{3,4}$/.test(timeRaw)) {
-      const str = timeRaw.padStart(4, "0");
-      hh = parseInt(str.slice(0, 2), 10);
-      mm = parseInt(str.slice(2, 4), 10);
-    } else if (/^\d{1,2}:\d{2}$/.test(timeRaw)) {
-      const [h, m] = timeRaw.split(":"); hh = parseInt(h, 10); mm = parseInt(m, 10);
-    } else { return null; }
-    if (!(hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59)) return null;
+    const byIncludes = allBossesSortedByNext.find((b) => `${b.name} ${b.location ?? ""}`.toLowerCase().includes(q));
+    return byIncludes ?? null;
+  }
 
-    const hay = (b: BossDto) => `${b.name} ${b.location ?? ""}`.toLowerCase();
-    const boss = list.find((b) => hay(b).includes(nameQuery));
-    if (!boss) return { boss: null, iso: null };
+  async function executeBotCommand(rawText: string) {
+    const text = rawText.trim();
+    if (!text) return;
 
-    const d = new Date();
-    d.setSeconds(0, 0);
-    d.setHours(hh, mm, 0, 0);
-    const iso = d.toString();
+    if (text === "명령어") {
+      setCommandHelpOpen(true);
+      setQuickCutText("");
+      return;
+    }
 
-    return { boss, iso };
+    if (text.startsWith("-v ")) {
+      const message = text.slice(3).trim();
+      if (!message) {
+        alert("읽을 메세지를 입력해주세요.");
+        return;
+      }
+      await speakKorean(message);
+      setQuickCutText("");
+      return;
+    }
+
+    if (text === "보탐 초기화") {
+      const now = new Date();
+      const cutAtIso = now.toString();
+      await runInitCutAt(
+        cutAtIso,
+        `모든 보스를 현재 시각(${now.toLocaleString()})으로 컷 처리합니다.\n'이력 전무' 보스는 1회 멍까지 자동 처리합니다.`,
+        { successMessage: "보스타임을 현재 시각으로 초기화했습니다." }
+      );
+      setQuickCutText("");
+      return;
+    }
+
+    const lower = text.toLowerCase();
+    const topBoss = normalsAll[0] ?? null;
+    const cutAliases = new Set(["컷", "ㅋ", "z"]);
+    const dazeAliases = new Set(["멍", "ㅁ", "a"]);
+
+    if (cutAliases.has(lower)) {
+      if (!topBoss) {
+        alert("처리할 보스가 없습니다.");
+        return;
+      }
+      const ok = await instantCut(topBoss, false, false);
+      if (ok && voiceEnabled) {
+        try { await speakKorean(`${topBoss.name} 컷 처리되었습니다.`); } catch {}
+      }
+      setQuickCutText("");
+      return;
+    }
+
+    if (dazeAliases.has(lower)) {
+      if (!topBoss) {
+        alert("처리할 보스가 없습니다.");
+        return;
+      }
+      const ok = await addDaze(topBoss, false, false);
+      if (ok && voiceEnabled) {
+        try { await speakKorean(`${topBoss.name} 멍 처리되었습니다.`); } catch {}
+      }
+      setQuickCutText("");
+      return;
+    }
+
+    const namedCommand = /^(.*?)\s+(컷|멍)$/.exec(text);
+    if (namedCommand) {
+      const bossName = namedCommand[1]?.trim() ?? "";
+      const action = namedCommand[2];
+      const boss = findBossByCommandName(bossName);
+      if (!boss) {
+        alert("입력한 보스명을 찾을 수 없습니다.");
+        return;
+      }
+      if (action === "컷") {
+        const ok = await instantCut(boss, false, false);
+        if (ok && voiceEnabled) {
+          try { await speakKorean(`${boss.name} 컷 처리되었습니다.`); } catch {}
+        }
+      } else {
+        const ok = await addDaze(boss, false, false);
+        if (ok && voiceEnabled) {
+          try { await speakKorean(`${boss.name} 멍 처리되었습니다.`); } catch {}
+        }
+      }
+      setQuickCutText("");
+      return;
+    }
+
+    alert("지원 명령어: -v 메세지 / 보탐 초기화 / [보스명] 컷 / [보스명] 멍 / 컷(ㅋ,z) / 멍(ㅁ,a)");
   }
 
   async function submitQuickCut() {
     if (quickSaving) return;
 
-    const parsed = parseQuickCut(quickCutText, filteredAll);
-    if (!parsed) {
-      alert("형식: 시각 보스이름\n예) 2200 서드 / 22:00 서드 / 930 악마왕");
-      return;
-    }
-    if (!parsed.boss) {
-      alert("입력한 보스명을 찾을 수 없습니다. (현재 목록에서 검색됩니다)");
-      return;
-    }
-
     setQuickSaving(true);
     try {
-      // 저장
-      await postJSON(`/v1/dashboard/bosses/${parsed.boss.id}/cut`, {
-        cutAtIso: parsed.iso,
-        mode: "TREASURY",
-        items: [],
-        participants: [],
-      });
-
-      // ⬇️ 간편컷 성공 직후: 지남 유지/알림 상태 정리 + 10분 억제 ON
-      const id = parsed.boss.id;
-      overdueStateRef.current.delete(id); // 0분 0초 카운트업(지남 유지) 즉시 해제
-      missedWarnSetRef.current.delete(id); // "미입력 이동" 경고 상태 제거
-      setAlertedMap((prev) => {            // 5/1분 음성 알림 임계값 기록 초기화
-        const next = new Map(prev);
-        next.delete(id);
-        return next;
-      });
-      actionSilenceRef.current.set(id, Date.now() + ACTION_SILENCE_MS); // 10분간 깜빡임/상단고정 억제
-
-      // UI 갱신
-      setQuickCutText("");
-      await loadBosses();
-      await loadRecentHistory();
-      clearSearch();
-      onForceRefresh?.();
+      await executeBotCommand(quickCutText);
     } catch (e: any) {
-      alert(e?.message ?? "간편컷 저장 실패");
+      alert(e?.message ?? "명령 실행 실패");
     } finally {
       setQuickSaving(false);
     }
   }
 
   // 즉시 컷
-  async function instantCut(b: BossDto, force = false) {
+  async function instantCut(b: BossDto, force = false, announce = true): Promise<boolean> {
     try {
-      const res = await postJSON<{ ok: boolean; needsConfirm?: boolean; by?: string; action?: string }>(
+      const res = await postJSON<{ ok?: boolean; needsConfirm?: boolean; by?: string; action?: string; message?: string }>(
         `/v1/dashboard/bosses/${b.id}/cut`,
         { cutAtIso: new Date().toString(), mode: "TREASURY", items: [], participants: [], force }
       );
       if (res?.needsConfirm && !force) {
         const ok = window.confirm(`${res.by ?? "다른 유저"}님이 이미 ${res.action ?? "컷"} 처리 했습니다. 덮어 씌우시겠습니까?`);
-        if (ok) return await instantCut(b, true);
-        return;
+        if (ok) return await instantCut(b, true, announce);
+        return false;
       }
-      try { if (voiceEnabled) await speakKorean(`${b.name} 컷 처리되었습니다.`); } catch {}
+      if (res?.ok === false) {
+        alert(res?.message ?? "즉시 컷 처리에 실패했습니다.");
+        return false;
+      }
+      try { if (announce && voiceEnabled) await speakKorean(`${b.name} 컷 처리되었습니다.`); } catch {}
 
       // ⬇️ 추가: 지남 유지/경고 상태 해제 + 10분 억제 ON
       overdueStateRef.current.delete(b.id);
@@ -1436,24 +1562,36 @@ export default function LoggedInDashboard({
       await loadRecentHistory();
       clearSearch();
       onForceRefresh?.();
-    } catch (e: any) { alert(e?.message ?? "즉시 컷 실패"); }
+      return true;
+    } catch (e: any) {
+      alert(e?.message ?? "즉시 컷 실패");
+      return false;
+    }
   }
 
   // 멍
-  async function addDaze(b: BossDto, force = false) {
+  async function addDaze(b: BossDto, force = false, announce = true): Promise<boolean> {
+    if (computeEffectiveMiss(b) > 0) {
+      alert("미입력 된 보스는 멍 처리 할 수 없습니다.");
+      return false;
+    }
     try {
       // 멍 기록 (백엔드가 타임라인 생성/갱신)
       const clanId = user?.clanId ?? localStorage.getItem("clanId");
-      const res = await postJSON<{ ok: boolean; needsConfirm?: boolean; by?: string; action?: string }>(
+      const res = await postJSON<{ ok?: boolean; needsConfirm?: boolean; by?: string; action?: string; message?: string }>(
         `/v1/dashboard/bosses/${b.id}/daze`,
         { atIso: new Date().toString(), clanId: clanId ?? undefined, force }
       );
       if (res?.needsConfirm && !force) {
         const ok = window.confirm(`${res.by ?? "다른 유저"}님이 이미 ${res.action ?? "멍"} 처리 했습니다. 덮어 씌우시겠습니까?`);
-        if (ok) return await addDaze(b, true);
-        return;
+        if (ok) return await addDaze(b, true, announce);
+        return false;
       }
-      try { if (voiceEnabled) await speakKorean(`${b.name} 멍 처리되었습니다.`); } catch {}
+      if (res?.ok === false) {
+        alert(res?.message ?? "멍 처리에 실패했습니다.");
+        return false;
+      }
+      try { if (announce && voiceEnabled) await speakKorean(`${b.name} 멍 처리되었습니다.`); } catch {}
 
       // ⬇️ 컷/멍 직후 처리: 지남 유지/알림 상태 정리 + 10분 억제 ON
       overdueStateRef.current.delete(b.id);                 // 0분 0초 카운트업(지남 유지) 즉시 해제
@@ -1464,14 +1602,17 @@ export default function LoggedInDashboard({
         return next;
       });
       actionSilenceRef.current.set(b.id, Date.now() + ACTION_SILENCE_MS); // 10분간 깜빡임/상단고정 억제
+      recentDazeFeedbackRef.current.set(b.id, Date.now() + 10_000);
 
       // 최신 데이터 반영
       await loadBosses();
       await loadRecentHistory();
       clearSearch();
       onForceRefresh?.();
+      return true;
     } catch (e: any) {
       alert(e?.message ?? "멍 기록에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+      return false;
     }
   }
 
@@ -1516,13 +1657,14 @@ export default function LoggedInDashboard({
 
       {/* ── 상단 컨트롤 바: 검색 / 음성 on/off / 간편컷 / 보스 초기화 / 디코 공유·가져오기 ── */}
       <div className="sticky top-0 z-[60] bg-slate-900/70 backdrop-blur px-2 py-2 rounded-md border border-white/10 text-white">
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
           {/* 검색 */}
           <div className="relative w-auto min-w-[160px] max-w-[220px]">
             <input
               ref={searchInputRef}
               className="w-full border border-white/10 bg-white/5 rounded-xl px-2 py-1.5 pr-6 text-sm text-white placeholder:text-white/50"
-              placeholder="보스 이름/위치 검색"
+              placeholder="보스 검색 (초성가능)"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
@@ -1566,82 +1708,62 @@ export default function LoggedInDashboard({
           <span className="text-xs text-white/50 w-[36px]">
             {Math.round(voiceVolume * 100)}%
           </span>
-          <button
-            type="button"
-            className="flex items-center gap-2 text-sm border border-white/10 rounded-md px-2 py-1 text-white/80 hover:bg-white/5"
-            onClick={() => {
-              if (voiceBoosted) {
-                setVoiceBoosted(false);
-                return;
-              }
-              const ok = window.confirm(
-                "음량이 현재 기준 3배로 증폭 됩니다. 큰 소리에 조심해주세요. 가급적 작은 음량에서 활성화 후, 음량을 조금씩 늘려주세요."
-              );
-              if (ok) setVoiceBoosted(true);
-            }}
-          >
-            <input type="checkbox" checked={voiceBoosted} readOnly className="accent-emerald-400" />
-            3배 증폭
-          </button>
+          </div>
 
-          {/* 칸막이 */}
-          <div className="h-6 border-l border-white/10 mx-1.5" />
-
-          {/* 간편 컷 */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            <div className="flex-1 min-w-0">
             <input
-              className="border border-white/10 bg-white/5 rounded-xl px-4 py-2 w-[220px] text-white placeholder:text-white/50"
-              placeholder="예: 2200 서드"
+              className="w-full border border-white/10 bg-white/5 rounded-xl px-4 py-2 text-white placeholder:text-white/50"
+              placeholder='보탐봇 명령어 입력 "명령어" 라고 입력하면 명령어 목록이 나옵니다.'
               value={quickCutText}
               onChange={(e) => setQuickCutText(e.target.value)}
               onKeyDown={(e) => {
+                if ((e.nativeEvent as KeyboardEvent).isComposing || e.keyCode === 229) return;
                 if (e.key === "Enter") { e.preventDefault(); submitQuickCut(); }
               }}
             />
+            </div>
+
+            {/* 보스 초기화 (모달 열기) */}
+            <button
+              type="button"
+              className="shrink-0 flex items-center gap-1 px-2 py-1.5 rounded-lg bg-white/10 text-white text-sm hover:bg-white/15"
+              onClick={() => setInitOpen(true)}
+              title="모든 보스를 지정 시각(+5분)으로 일괄 컷"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M4 4v6h6M20 20v-6h-6M20 4h-6V2m0 0a8 8 0 010 16m0-16a8 8 0 100 16" />
+              </svg>
+              보스 초기화
+            </button>
+
+            {/* 디코 보스봇 시간 공유 (모달 열기) */}
+            <button
+              type="button"
+              className="shrink-0 flex items-center gap-1 px-2 py-1.5 rounded-lg bg-white/10 text-white text-sm hover:bg-white/15"
+              onClick={openShareModal}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M4 12v.01M4 6v.01M4 18v.01M12 6v12m0 0l-4-4m4 4l4-4" />
+              </svg>
+              디코에게 공유
+            </button>
+
+            {/* 디코 보스봇 시간 가져오기 (모달 열기) */}
+            <button
+              type="button"
+              className="shrink-0 flex items-center gap-1 px-2 py-1.5 rounded-lg bg-white/10 text-white text-sm hover:bg-white/15"
+              onClick={() => setImportOpen(true)}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M20 12v.01M20 6v.01M20 18v.01M12 18V6m0 0l-4 4m4-4l4 4" />
+              </svg>
+              디코에서 가져오기
+            </button>
           </div>
-
-          {/* 칸막이 */}
-          <div className="h-6 border-l border-white/10 mx-1.5" />
-
-          {/* 보스 초기화 (모달 열기) */}
-          <button
-            type="button"
-            className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-white/10 text-white text-sm hover:bg-white/15"
-            onClick={() => setInitOpen(true)}
-            title="모든 보스를 지정 시각(+5분)으로 일괄 컷"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M4 4v6h6M20 20v-6h-6M20 4h-6V2m0 0a8 8 0 010 16m0-16a8 8 0 100 16" />
-            </svg>
-            보스 초기화
-          </button>
-
-          {/* 디코 보스봇 시간 공유 (모달 열기) */}
-          <button
-            type="button"
-            className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-white/10 text-white text-sm hover:bg-white/15"
-            onClick={openShareModal}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M4 12v.01M4 6v.01M4 18v.01M12 6v12m0 0l-4-4m4 4l4-4" />
-            </svg>
-            디코에게 공유
-          </button>
-
-          {/* 디코 보스봇 시간 가져오기 (모달 열기) */}
-          <button
-            type="button"
-            className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-white/10 text-white text-sm hover:bg-white/15"
-            onClick={() => setImportOpen(true)}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M20 12v.01M20 6v.01M20 18v.01M12 18V6m0 0l-4 4m4-4l4 4" />
-            </svg>
-            디코에서 가져오기
-          </button>
         </div>
       </div>
 
@@ -1670,6 +1792,16 @@ export default function LoggedInDashboard({
                   {bossListEditMode ? (bossListSaving ? "저장 중..." : "저장") : "보스 목록 편집"}
                 </div>
               </div>
+              {bossListEditMode && (
+                <div
+                  onClick={cancelBossListEdit}
+                  className="relative overflow-visible z-[40] hover:z-[90] rounded-xl shadow-sm p-3 text-sm border border-white/10 bg-white/5 cursor-pointer"
+                >
+                  <div className="flex h-full min-h-[72px] items-center justify-center text-center text-[13px] font-medium text-white/80">
+                    취소
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </section>
@@ -1993,6 +2125,15 @@ export default function LoggedInDashboard({
         </Modal>
       )}
 
+      <Modal
+        open={commandHelpOpen}
+        onClose={() => setCommandHelpOpen(false)}
+        title="보탐봇 명령어"
+        maxWidth="max-w-[560px]"
+      >
+        <pre className="whitespace-pre-wrap text-sm leading-7 text-white/85">{BOT_COMMAND_HELP}</pre>
+      </Modal>
+
       {/* ── 디코 보스탐 가져오기 모달 ── */}
       {importOpen && (
         <Modal
@@ -2097,49 +2238,59 @@ export default function LoggedInDashboard({
           role="dialog"
         >
           <div className="relative rounded-2xl border border-white/10 bg-slate-900/90 text-white shadow-xl w-[520px] max-w-[92vw] p-6 backdrop-blur">
-            <h2 className="text-lg font-bold mb-3">기능 업데이트 안내 (2026.02.07)</h2>
+            <h2 className="text-lg font-bold mb-3">업데이트 공지 2026.03.02</h2>
 
             <div className="text-sm text-white/80 space-y-3">
               <div>
-                <div className="font-semibold">1. 혈맹 레이드 입력 기능 완성</div>
+                <div className="font-semibold">1. 디코 명령어를 사용할 수 있게 기능이 추가 되었습니다.</div>
                 <div className="ml-4 mt-1 space-y-1">
-                  <div>1.1. 혈맹 레이드 보스별 컷 기능</div>
-                  <div>1.2. 혈맹 보스별 드랍템, 루팅자, 참여자 및 혈비귀속, 드랍템 분배 형태로 정보 저장 가능</div>
-                  <div>1.3. 혈비귀속시 아이템 판매 완료 처리하면 자동으로 혈비로 등록됨.</div>
-                  <div>1.4. 혈비귀속이 아닌 경우 아이템 판매 후 참여자 설정 (스크린샷으로 등록 가능) 후 개인별로 분배 가능</div>
+                  <div>- PC화면 상단 검색조건에 위치</div>
+                  <div>- 모바일 화면 하단 버튼 위에 위치</div>
+                  <div>- "명령어" 라고 입력하면 명령어 리스트를 확인할 수 있습니다.</div>
                 </div>
               </div>
-              <div>
-                <div className="font-semibold">2. 보스 알림 음성 증폭기능 추가</div>
-                <div className="ml-4 mt-1">2.1. 보스 알림 목소리 소리가 너무 작아서 불편하다는 불편 건의 사항에 따라 기능 추가</div>
-              </div>
+              <div>2. 멍 / 미입력이 동시에 존재하는 문제를 없앴습니다. 미입력인 경우 멍 횟수가 보이지 않습니다.</div>
+              <div>3. 미입력 보스는 멍 처리 할 수 없도록 변경했습니다.</div>
+              <div>4. 보스 목록 편집 기능에 "취소" 기능을 넣었습니다.</div>
+              <div>5. 혈맹별 디스코드 링크 입력기능을 추가했습니다. PC 화면에서 확인 가능하며, 상단 우측에 위치해 있습니다.</div>
+              <div>6. 고정보스도 음성 안내 되도록 변경했습니다.</div>
             </div>
 
-            <div className="mt-6 flex items-center justify-between">
-              <label className="flex items-center gap-2 text-sm text-white/70 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={updateHide7d}
-                  onChange={(e) => setUpdateHide7d(e.currentTarget.checked)}
-                  className="w-4 h-4 accent-emerald-400"
-                />
-                7일간 보지 않기
-              </label>
-              <button
-                type="button"
-                className="px-4 py-2 text-sm rounded bg-white text-slate-900 hover:bg-emerald-100"
-                onClick={() => {
-                  if (updateHide7d) {
-                    const until = Date.now() + 7 * 24 * 60 * 60 * 1000;
-                    try {
-                      localStorage.setItem("update-popup-hide-until", String(until));
-                    } catch {}
-                  }
-                  setUpdatePopupOpen(false);
-                }}
-              >
-                닫기
-              </button>
+            <div className="mt-6 flex items-center justify-between gap-3">
+              <div>
+                <label className="flex items-center gap-2 text-sm text-white/70 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={updateHideForever}
+                    onChange={(e) => setUpdateHideForever(e.currentTarget.checked)}
+                    className="w-4 h-4 accent-emerald-400"
+                  />
+                  다시 열지 않기
+                </label>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="px-4 py-2 text-sm rounded border border-white/15 bg-white/5 text-white/80 hover:bg-white/10"
+                  onClick={() => setUpdatePopupOpen(false)}
+                >
+                  닫기
+                </button>
+                <button
+                  type="button"
+                  className="px-4 py-2 text-sm rounded bg-white text-slate-900 hover:bg-emerald-100"
+                  onClick={() => {
+                    if (updateHideForever) {
+                      try {
+                        localStorage.setItem("update-popup-hide-forever-20260302", "1");
+                      } catch {}
+                    }
+                    setUpdatePopupOpen(false);
+                  }}
+                >
+                  확인
+                </button>
+              </div>
             </div>
           </div>
         </div>
