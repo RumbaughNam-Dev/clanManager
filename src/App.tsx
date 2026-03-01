@@ -156,7 +156,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen min-w-[1440px] bg-slate-950 text-white relative overflow-x-auto overflow-y-hidden">
+    <div className={`min-h-screen bg-slate-950 text-white relative ${isMobile ? "overflow-x-hidden overflow-y-hidden" : "min-w-[1440px] overflow-x-auto overflow-y-hidden"}`}>
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute -top-24 -right-20 h-56 w-56 rounded-full bg-emerald-400/25 blur-3xl" />
         <div className="absolute bottom-[-120px] left-[-60px] h-72 w-72 rounded-full bg-sky-400/20 blur-3xl" />
