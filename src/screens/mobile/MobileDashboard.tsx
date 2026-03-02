@@ -1202,7 +1202,7 @@ export default function MobileDashboard() {
       </div>
 
       {/* 하단 고정 버튼 영역 */}
-      <div className="fixed bottom-0 left-0 right-0 z-30">
+      <div className="fixed bottom-0 left-0 right-0 z-50">
         <div className="w-full px-[5%] py-4 bg-slate-950/95 backdrop-blur border-t border-white/10">
           <div className="mb-3">
             <input

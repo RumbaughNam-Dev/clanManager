@@ -16,6 +16,7 @@ import AdminBossCycle from "./screens/SuperAdmin/AdminBossCycle";
 import MobileDashboard from "./screens/mobile/MobileDashboard";
 import FeedbackBoard from "./screens/Feedback/FeedbackBoard";
 import RaidManage from "./screens/RaidManage/RaidManage";
+import HostileManage from "./screens/HostileManage";
 import Modal from "./components/common/Modal";
 import { putJSON } from "./lib/http";
 
@@ -98,18 +99,24 @@ export default function App() {
         { key: "feedback" as PageKey, label: "불편사항 건의하기" },
       ];
     }
-    const base = [
+    return [
       { key: "dashboard" as PageKey, label: "대시보드" },
       { key: "timelineList" as PageKey, label: "잡은보스 관리" },
       { key: "raidManage" as PageKey, label: "혈레이드 관리" },
-      { key: "treasury" as PageKey, label: "혈비 관리" },
-      { key: "feedback" as PageKey, label: "불편사항 건의하기" },
+    ];
+  }, [role]);
+  const clanManageItems = useMemo(() => {
+    if (role === "SUPERADMIN") return [] as Array<{ key: PageKey; label: string }>;
+    const items = [
+      { key: "treasury" as PageKey, label: "혈비관리" },
+      { key: "hostileManage" as PageKey, label: "적대관리" },
     ];
     if (role === "ADMIN" || role === "LEADER") {
-      base.splice(4, 0, { key: "members" as PageKey, label: "혈맹원 관리" });
+      items.splice(1, 0, { key: "members" as PageKey, label: "혈맹원 관리" });
     }
-    return base;
+    return items;
   }, [role]);
+  const clanManageActive = clanManageItems.some((item) => item.key === page);
 
   const effectiveRole = (role ?? "USER") as Role;
   const canEditDiscordLink = role === "LEADER" || role === "ADMIN" || role === "SUPERADMIN";
@@ -163,7 +170,7 @@ export default function App() {
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),transparent_55%)]" />
       </div>
       {!isMobile && (
-        <header className="sticky top-0 z-40 bg-slate-950/85 text-white backdrop-blur border-b border-white/10">
+        <header className="sticky top-0 z-[120] bg-slate-950/85 text-white backdrop-blur border-b border-white/10">
           <div className="mx-auto w-full min-w-[1440px] max-w-[1920px] px-6 h-16 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               {/* 🔗 로고 클릭 시 대시보드로 이동 */}
@@ -187,6 +194,51 @@ export default function App() {
                     {p.label}
                   </button>
                 ))}
+                {clanManageItems.length > 0 && (
+                  <div className="relative group">
+                    <button
+                      type="button"
+                      className={`px-3 py-1.5 rounded-xl text-sm transition-colors ${
+                        clanManageActive
+                          ? "bg-white/10 text-white"
+                          : "text-white/70 hover:text-white hover:bg-white/5"
+                      }`}
+                    >
+                      혈맹 관리
+                    </button>
+                    <div className="invisible opacity-0 pointer-events-none absolute left-0 top-full z-[130] pt-2 transition-all duration-150 group-hover:visible group-hover:opacity-100 group-hover:pointer-events-auto">
+                      <div className="min-w-[160px] rounded-2xl border border-white/10 bg-slate-900/95 p-2 shadow-xl backdrop-blur">
+                        {clanManageItems.map((item) => (
+                          <button
+                            key={item.key}
+                            type="button"
+                            onClick={() => guardAndNav(item.key)}
+                            className={`block w-full rounded-xl px-3 py-2 text-left text-sm transition-colors ${
+                              page === item.key
+                                ? "bg-white/10 text-white"
+                                : "text-white/70 hover:bg-white/5 hover:text-white"
+                            }`}
+                          >
+                            {item.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {role !== "SUPERADMIN" && (
+                  <button
+                    type="button"
+                    onClick={() => guardAndNav("feedback")}
+                    className={`px-3 py-1.5 rounded-xl text-sm transition-colors ${
+                      page === "feedback"
+                        ? "bg-white/10 text-white"
+                        : "text-white/70 hover:text-white hover:bg-white/5"
+                    }`}
+                  >
+                    불편사항 건의하기
+                  </button>
+                )}
               </nav>
             </div>
             <div className="flex items-center gap-2 text-sm">
@@ -282,6 +334,7 @@ export default function App() {
         {page === "timelineList" && <TimelineList />}
         {page === "timelineDetail" && <TimelineDetail role={effectiveRole} />}
         {page === "raidManage" && <RaidManage />}
+        {page === "hostileManage" && <HostileManage />}
         {page === "treasury" && <Treasury role={effectiveRole} />}
         {page === "feedback" && <FeedbackBoard />}
         {page === "login" &&

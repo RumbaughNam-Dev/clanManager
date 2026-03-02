@@ -2,6 +2,7 @@
 export type PageKey =
   | "dashboard"
   | "members"
+  | "hostileManage"
   // | "bossMeta"           // ❌ 삭제
   | "timelineList"
   | "timelineDetail"
@@ -16,6 +17,7 @@ export type PageKey =
 export const PAGES: { key: PageKey; label: string }[] = [
   { key: "dashboard", label: "대시보드" },
   { key: "members", label: "혈맹원 관리" },
+  { key: "hostileManage", label: "적대관리" },
   // { key: "bossMeta", label: "보스 메타" }, // ❌ 제거
   { key: "timelineList", label: "보스 기록" }, // ✅ 이름만 쉽게
   { key: "timelineDetail", label: "타임라인 상세" },

@@ -180,7 +180,13 @@ export default function FeedbackBoard() {
     setDetailOpen(true);
     setDetailLoading(true);
     try {
-      const data = await getJSON<Detail>(`/v1/feedback/${id}`);
+      let data: Detail;
+      try {
+        data = await getJSON<Detail>(`/v1/feedback/${id}`);
+      } catch (e: any) {
+        if (e?.status !== 404) throw e;
+        data = await postJSON<Detail>(`/v1/feedback/${id}`, {});
+      }
       setDetail(data);
       setEditingCommentId(null);
       setCommentText("");
