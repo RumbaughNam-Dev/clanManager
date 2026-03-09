@@ -172,7 +172,8 @@ function computeMissCount(b: BossDto, now = Date.now()): number {
   const lastMs = new Date(b.lastCutAt).getTime();
   if (!Number.isFinite(lastMs) || now <= lastMs) return 0;
 
-  const overdueMs = now - (lastMs + respawnMs);
+  const dazeCount = Number((b as any).dazeCount ?? 0);
+  const overdueMs = now - (lastMs + respawnMs * (1 + dazeCount));
   if (overdueMs < OVERDUE_GRACE_MS) return 0;
 
   const missed = 1 + Math.floor((overdueMs - OVERDUE_GRACE_MS) / respawnMs);
