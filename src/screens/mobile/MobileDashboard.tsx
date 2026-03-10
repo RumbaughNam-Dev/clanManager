@@ -249,12 +249,43 @@ async function instantCut(b: BossDto, onAfter?: () => void, speak?: (t: string) 
 
 /** 멍 */
 async function addDaze(b: BossDto, onAfter?: () => void, speak?: (t: string) => void, clanId?: string | null, force = false, announce = true): Promise<boolean> {
-  if (computeMissCount(b) > 0) {
-    alert("미입력 된 보스는 멍 처리 할 수 없습니다.");
-    return false;
-  }
   try {
     const fallbackClanId = clanId ?? localStorage.getItem("clanId");
+    const now = Date.now();
+    const missCount = computeMissCount(b, now);
+
+    // 미입력 상태이면: 마지막 컷 기준으로 현재 직전 리스폰 시점을 계산하여 컷 데이터 삽입 후 멍 처리
+    if (missCount > 0) {
+      const respawnMs = (b.respawn ?? 0) * 60 * 1000;
+      let baseMs: number;
+      if (b.lastCutAt) {
+        baseMs = new Date(b.lastCutAt).getTime();
+      } else {
+        const d = new Date(now);
+        d.setHours(0, 0, 0, 0);
+        baseMs = d.getTime();
+      }
+      // 리스폰 주기를 반복하며 현재 시각 직전의 젠 시점 계산
+      // 매 주기마다 1분씩 누적 (잡는 시간 가정)
+      let cycles = 0;
+      let spawnAt = baseMs + respawnMs;
+      while (spawnAt + cycles * 60_000 <= now) {
+        cycles++;
+        spawnAt = baseMs + respawnMs * (cycles + 1);
+      }
+      const cutAtMs = baseMs + respawnMs * cycles + cycles * 60_000;
+      const cutAtIso = new Date(cutAtMs).toString();
+
+      const cutRes = await postJSON<{ ok?: boolean; message?: string }>(
+        `/v1/dashboard/bosses/${b.id}/cut`,
+        { cutAtIso, mode: "TREASURY", items: [], participants: [], force: true, daze: true }
+      );
+      if (cutRes?.ok === false) {
+        alert(cutRes?.message ?? "멍 컷 데이터 입력에 실패했습니다.");
+        return false;
+      }
+    }
+
     const res = await postJSON<{ ok?: boolean; needsConfirm?: boolean; by?: string; action?: string; message?: string }>(
       `/v1/dashboard/bosses/${b.id}/daze`,
       { atIso: new Date().toString(), clanId: fallbackClanId ?? undefined, force }
