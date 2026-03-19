@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(which claude 2>&1; claude --version 2>&1)",
+      "Bash(npm list -g @anthropic-ai/claude-code 2>&1; npm root -g 2>&1)"
+    ]
+  }
+}

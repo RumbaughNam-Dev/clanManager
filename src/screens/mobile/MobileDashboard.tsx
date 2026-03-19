@@ -13,6 +13,8 @@ const BOT_COMMAND_HELP = [
   "컷 / ㅋ / z : 현재 목록 최상단 보스를 컷 처리합니다.",
   "[보스명] 멍 : 입력한 보스를 현재 시각으로 멍 처리합니다.",
   "멍 / ㅁ / a : 현재 목록 최상단 보스를 멍 처리합니다.",
+  "[HHmm] [보스명] 컷 : 입력한 보스를 지정 시각으로 컷 처리합니다. (예: 2207 아르 컷)",
+  "[HHmm] [보스명] 멍 : 입력한 보스를 지정 시각으로 멍 처리합니다. (예: 0130 오크 멍)",
 ].join("\n");
 
 function toChosung(input: string): string {
@@ -880,6 +882,65 @@ export default function MobileDashboard() {
       return;
     }
 
+    // 시간 지정 명령어: [HHmm] [보스명] [컷|멍]  (예: 2207 아르 컷, 0130 오크 멍)
+    const timedCommand = /^(\d{4})\s+(.*?)\s+(컷|멍)$/.exec(text);
+    if (timedCommand) {
+      const timeStr = timedCommand[1];
+      const bossName = timedCommand[2]?.trim() ?? "";
+      const action = timedCommand[3];
+      const hh = Number(timeStr.slice(0, 2));
+      const mm = Number(timeStr.slice(2, 4));
+      if (hh > 23 || mm > 59) {
+        alert("시간 형식이 올바르지 않습니다. (예: 2207 = 22시 07분)");
+        return;
+      }
+      const boss = findBossByCommandName(bossName);
+      if (!boss) {
+        alert("입력한 보스명을 찾을 수 없습니다.");
+        return;
+      }
+      const cutAt = new Date();
+      cutAt.setHours(hh, mm, 0, 0);
+      const cutAtIso = cutAt.toString();
+      const timeLabel = `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+
+      if (action === "컷") {
+        try {
+          const res = await postJSON<{ ok?: boolean; needsConfirm?: boolean; by?: string; action?: string; message?: string }>(
+            `/v1/dashboard/bosses/${boss.id}/cut`,
+            { cutAtIso, mode: "TREASURY", items: [], participants: [], force: false }
+          );
+          if (res?.needsConfirm) {
+            const ok = window.confirm(`${res.by ?? "다른 유저"}님이 이미 ${res.action ?? "컷"} 처리 했습니다. 덮어 씌우시겠습니까?`);
+            if (ok) {
+              await postJSON(`/v1/dashboard/bosses/${boss.id}/cut`, { cutAtIso, mode: "TREASURY", items: [], participants: [], force: true });
+            } else { return; }
+          } else if (res?.ok === false) {
+            alert(res?.message ?? "컷 처리에 실패했습니다.");
+            return;
+          }
+          if (voiceEnabled) { try { await speakKorean(`${boss.name} ${timeLabel} 컷 처리되었습니다.`); } catch {} }
+        } catch (e: any) {
+          alert(e?.message ?? "컷 처리 실패");
+          return;
+        }
+      } else {
+        try {
+          await postJSON(`/v1/dashboard/bosses/${boss.id}/cut`, { cutAtIso, mode: "TREASURY", items: [], participants: [], force: true, daze: true });
+          const clanId = user?.clanId ?? localStorage.getItem("clanId");
+          await postJSON(`/v1/dashboard/bosses/${boss.id}/daze`, { atIso: cutAtIso, clanId: clanId ?? undefined, force: true });
+          if (voiceEnabled) { try { await speakKorean(`${boss.name} ${timeLabel} 멍 처리되었습니다.`); } catch {} }
+        } catch (e: any) {
+          alert(e?.message ?? "멍 처리 실패");
+          return;
+        }
+      }
+      clearOverdueFor(boss.id);
+      await load();
+      setCommandText("");
+      return;
+    }
+
     const namedCommand = /^(.*?)\s+(컷|멍)$/.exec(text);
     if (namedCommand) {
       const bossName = namedCommand[1]?.trim() ?? "";
@@ -926,7 +987,7 @@ export default function MobileDashboard() {
       return;
     }
 
-    alert("지원 명령어: -v 메세지 / 보탐 초기화 / [보스명] 컷 / [보스명] 멍 / 컷(ㅋ,z) / 멍(ㅁ,a)");
+    alert("지원 명령어: -v 메세지 / 보탐 초기화 / [보스명] 컷 / [보스명] 멍 / 컷(ㅋ,z) / 멍(ㅁ,a) / [HHmm] [보스명] 컷|멍");
   }, [sortedAll, user?.clanId, voiceEnabled, bossesTracked, bossesForgotten, findBossByCommandName, runInitCutAt]);
 
   const submitCommand = useCallback(async () => {

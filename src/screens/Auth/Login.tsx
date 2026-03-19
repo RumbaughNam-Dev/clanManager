@@ -1,6 +1,6 @@
 // src/screens/Auth/Login.tsx
 import React, { useEffect, useRef, useState } from "react";
-import { useAuth } from "../../contexts/AuthContext";
+import { useAuth, type AccountOption } from "../../contexts/AuthContext";
 import { postJSON } from "@/lib/http";
 import Modal from "@/components/common/Modal";
 
@@ -20,6 +20,9 @@ export default function Login({ onGoSignup }: Props) {
   const [newPw, setNewPw] = useState("");
   const [newPwConfirm, setNewPwConfirm] = useState("");
 
+  // ✅ 다중 계정 선택
+  const [accounts, setAccounts] = useState<AccountOption[] | null>(null);
+
   const idRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     idRef.current?.focus();
@@ -32,7 +35,10 @@ export default function Login({ onGoSignup }: Props) {
     try {
       const res: any = await login(loginId, password);
 
-      if (res?.mustChangePassword) {
+      if (res?.multipleAccounts && res?.accounts) {
+        // ✅ 동일 아이디/비밀번호로 여러 계정 → 서버 선택
+        setAccounts(res.accounts);
+      } else if (res?.mustChangePassword) {
         // ✅ 기본 비밀번호라면 팝업 띄우기
         setMustChange(true);
       } else {
@@ -40,6 +46,25 @@ export default function Login({ onGoSignup }: Props) {
       }
     } catch (e: any) {
       const msg = e?.body?.message || "로그인 정보가 존재하지 않습니다.";
+      alert(msg);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // ✅ 다중 계정 중 선택
+  const selectAccount = async (clanId: string) => {
+    setSubmitting(true);
+    try {
+      const res: any = await login(loginId, password, clanId);
+      if (res?.mustChangePassword) {
+        setAccounts(null);
+        setMustChange(true);
+      } else {
+        setAccounts(null);
+      }
+    } catch (e: any) {
+      const msg = e?.body?.message || "로그인에 실패했습니다.";
       alert(msg);
     } finally {
       setSubmitting(false);
@@ -150,6 +175,41 @@ export default function Login({ onGoSignup }: Props) {
           </form>
         </div>
       </div>
+
+      {/* ✅ 다중 계정 선택 팝업 */}
+      {accounts && accounts.length > 0 && (
+        <Modal
+          open={true}
+          onClose={() => setAccounts(null)}
+          title="계정 선택"
+          maxWidth="max-w-[420px]"
+        >
+          <p className="text-sm text-white/70 mb-4">
+            동일한 아이디로 등록된 계정이 여러 개 있습니다. 로그인할 계정을 선택하세요.
+          </p>
+          <div className="space-y-2">
+            {accounts.map((acc) => (
+              <button
+                key={acc.clanId}
+                onClick={() => selectAccount(acc.clanId)}
+                disabled={submitting}
+                className="w-full text-left rounded-xl border border-white/10 bg-white/5 px-4 py-3 hover:bg-white/10 transition-colors disabled:opacity-40"
+              >
+                <div className="text-sm font-semibold text-white">{acc.clanName}</div>
+                <div className="text-xs text-white/60">{acc.serverDisplay}</div>
+              </button>
+            ))}
+          </div>
+          <div className="mt-4 flex justify-end">
+            <button
+              onClick={() => setAccounts(null)}
+              className="px-3 py-1.5 rounded-lg border border-white/10 text-white/80 hover:bg-white/10 text-sm"
+            >
+              취소
+            </button>
+          </div>
+        </Modal>
+      )}
 
       {/* ✅ 비밀번호 변경 팝업 */}
       {mustChange && (

@@ -14,11 +14,23 @@ type UserShape = {
   clanDiscordLink?: string | null;
 };
 
+export type AccountOption = {
+  clanId: string;
+  clanName: string;
+  serverDisplay: string;
+};
+
+type LoginResult = {
+  mustChangePassword?: boolean;
+  multipleAccounts?: boolean;
+  accounts?: AccountOption[];
+};
+
 type AuthContextShape = {
   user: UserShape | null;
   role: Role | null;
   loading: boolean;
-  login: (loginId: string, password: string) => Promise<{ mustChangePassword?: boolean }>;
+  login: (loginId: string, password: string, clanId?: string) => Promise<LoginResult>;
   setUser: React.Dispatch<React.SetStateAction<UserShape | null>>;
   logout: () => void;
 };
@@ -27,7 +39,7 @@ const AuthContext = createContext<AuthContextShape>({
   user: null,
   role: null,
   loading: false,
-  login: async () => ({ mustChangePassword: false }),
+  login: async () => ({}),
   setUser: () => {},
   logout: () => {},
 });
@@ -75,7 +87,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
 // src/contexts/AuthContext.tsx
-const login = async (loginId: string, password: string) => {
+const login = async (loginId: string, password: string, clanId?: string) => {
   const res = await postJSON<{
     ok: true;
     user?: UserShape;
@@ -85,7 +97,14 @@ const login = async (loginId: string, password: string) => {
     serverDisplay?: string | null;
     clanDiscordLink?: string | null;
     mustChangePassword?: boolean;
-  }>("/v1/auth/login", { loginId, password });
+    multipleAccounts?: boolean;
+    accounts?: AccountOption[];
+  }>("/v1/auth/login", { loginId, password, ...(clanId ? { clanId } : {}) });
+
+  // 동일 아이디/비밀번호로 여러 계정이 존재하면 선택 화면으로
+  if (res.multipleAccounts && res.accounts) {
+    return { multipleAccounts: true, accounts: res.accounts };
+  }
 
   // 🔴 강제 변경이면 여기서 바로 반환: 토큰/유저 저장 금지
   if (res.mustChangePassword) {
